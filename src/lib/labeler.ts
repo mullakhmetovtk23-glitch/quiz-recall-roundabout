@@ -1,4 +1,4 @@
-import { LABEL_SYSTEM_PROMPT, buildLabelUserPrompt, normalizeLabel } from "./label-prompt";
+import { SINGLE_LABEL_SYSTEM_PROMPT, buildLabelUserPrompt, normalizeLabel } from "./label-prompt";
 import type { LabelResult } from "./ai.functions";
 import type { AppSettings } from "./settings";
 
@@ -16,7 +16,7 @@ export async function labelWithOwnKey(
         model: settings.llmModel,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: `${LABEL_SYSTEM_PROMPT}\nОтвечай только JSON.` },
+          { role: "system", content: `${SINGLE_LABEL_SYSTEM_PROMPT}\nОтвечай только JSON.` },
           { role: "user", content: buildLabelUserPrompt(text, categories) },
         ],
       }),

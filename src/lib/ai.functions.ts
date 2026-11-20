@@ -6,7 +6,7 @@ import {
   RateLimitError,
   generateChatCompletion,
 } from "@lovable.dev/ai-gateway";
-import { LABEL_SYSTEM_PROMPT, buildLabelUserPrompt, normalizeLabel, type PostLabel } from "./label-prompt";
+import { SINGLE_LABEL_SYSTEM_PROMPT, buildLabelUserPrompt, normalizeLabel, type PostLabel } from "./label-prompt";
 
 const inputSchema = z.object({
   text: z.string().min(1).max(12000),
@@ -29,7 +29,7 @@ export const labelPost = createServerFn({ method: "POST" })
       const res = await generateChatCompletion({
         model: "openai/gpt-6-astra",
         messages: [
-          { role: "system", content: LABEL_SYSTEM_PROMPT },
+          { role: "system", content: SINGLE_LABEL_SYSTEM_PROMPT },
           { role: "user", content: buildLabelUserPrompt(data.text, data.categories) },
         ],
         response_format: {
@@ -43,9 +43,9 @@ export const labelPost = createServerFn({ method: "POST" })
               properties: {
                 term: { type: "string" },
                 hook: { type: "string" },
-                category_name: categoryProp,
+                category_names: { type: "array", items: categoryProp },
               },
-              required: ["term", "hook", "category_name"],
+              required: ["term", "hook", "category_names"],
             },
           },
         },

@@ -86,3 +86,11 @@ export function basicLabel(text: string): { term: string; hook: string } {
   const first = (lines.shift() ?? "").trim();
   return { term: first.slice(0, 200), hook: lines.join("\n").trim() };
 }
+
+export const SINGLE_LABEL_SYSTEM_PROMPT = `Ты помогаешь готовиться к интеллектуальным играм (ЧГК, Своя игра). Из заметки-поста нужно сделать карточку для интервального повторения.
+Верни строго JSON с полями:
+${FIELD_RULES}`;
+
+export function buildLabelUserPrompt(text: string, categories: string[]): string {
+  return `${categoriesLine(categories)}\n\nПост:\n"""\n${text.slice(0, 6000)}\n"""`;
+}

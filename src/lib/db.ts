@@ -3,10 +3,10 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 
 export type Channel = Tables<"channels">;
-export type Card = Omit<Tables<"cards">, "search_vector">;
+export type Card = Omit<Tables<"cards">, "search_vector" | "channel_id" | "tg_rendered_text">;
 
 export const CARD_COLUMNS =
-  "id,channel_id,term,hook,full_text,image_url,source_chat_id,tg_message_id,fwd_box,fwd_due_at,fwd_reviewed_at,rev_box,rev_due_at,rev_reviewed_at,created_at,updated_at" as const;
+  "id,channel_ids,term,hook,full_text,image_url,source_chat_id,tg_message_id,fwd_box,fwd_due_at,fwd_reviewed_at,rev_box,rev_due_at,rev_reviewed_at,created_at,updated_at" as const;
 
 export const channelsQuery = queryOptions({
   queryKey: ["channels"],

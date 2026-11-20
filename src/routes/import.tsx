@@ -107,7 +107,7 @@ function ImportPage() {
 
     let term = "";
     let hook = "";
-    let channelId: string | null = destination === "channel" ? targetChannel || null : null;
+    let channelIds: string[] = destination === "channel" && targetChannel ? [targetChannel] : [];
 
     if (post.text) {
       const categories = destination === "ai" ? channels.map((c) => c.name) : [];
@@ -131,7 +131,10 @@ function ImportPage() {
       }
       term = res.label.term;
       hook = res.label.hook;
-      if (destination === "ai") channelId = byName.get(res.label.category_name.toLowerCase()) ?? null;
+      if (destination === "ai")
+        channelIds = res.label.category_names
+          .map((n) => byName.get(n.toLowerCase()))
+          .filter((id): id is string => !!id);
     }
 
     let image_url: string | null = null;
@@ -152,7 +155,7 @@ function ImportPage() {
         hook,
         full_text: post.text,
         image_url,
-        channel_id: channelId,
+        channel_ids: channelIds,
       },
       { onConflict: "source_chat_id,tg_message_id" },
     );

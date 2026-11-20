@@ -39,7 +39,7 @@ export function CardFormDialog({ open, onOpenChange, channels, card, defaultChan
     setTerm(card?.term ?? "");
     setHook(card?.hook ?? "");
     setFullText(card?.full_text ?? "");
-    setChannelId(card ? (card.channel_id ?? NONE) : (defaultChannelId ?? NONE));
+    setChannelId(card ? (card.channel_ids[0] ?? NONE) : (defaultChannelId ?? NONE));
     setFile(null);
     setPreview(card?.image_url ?? null);
     setRemoveImage(false);
@@ -71,7 +71,10 @@ export function CardFormDialog({ open, onOpenChange, channels, card, defaultChan
         term: term.trim(),
         hook: hook.trim(),
         full_text: fullText.trim(),
-        channel_id: channelId === NONE ? null : channelId,
+        channel_ids:
+          channelId === NONE
+            ? []
+            : [channelId, ...(card?.channel_ids ?? []).filter((id) => id !== channelId)],
         image_url,
       };
       const query = card

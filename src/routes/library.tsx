@@ -72,8 +72,8 @@ function LibraryPage() {
       let query = supabase.from("cards").select(CARD_COLUMNS, { count: "exact" });
       const ts = buildTsQuery(q);
       if (ts) query = query.textSearch("search_vector", ts, { config: "russian" });
-      if (channel === NONE) query = query.is("channel_id", null);
-      else if (channel !== ALL) query = query.eq("channel_id", channel);
+      if (channel === NONE) query = query.eq("channel_ids", "{}");
+      else if (channel !== ALL) query = query.contains("channel_ids", [channel]);
       const { data, error, count } = await query.order("created_at", { ascending: false }).range(0, limit - 1);
       if (error) throw error;
       return { cards: data, count: count ?? data.length };
@@ -177,7 +177,13 @@ function LibraryPage() {
                   {card.image_url && <ImageIcon className="size-3.5 text-muted-foreground" />}
                 </div>
                 {card.hook && <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{card.hook}</p>}
-                <ChannelPill channel={card.channel_id ? channelMap.get(card.channel_id) : null} className="mt-2" />
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {card.channel_ids.length ? (
+                    card.channel_ids.map((id) => <ChannelPill key={id} channel={channelMap.get(id)} />)
+                  ) : (
+                    <ChannelPill channel={null} />
+                  )}
+                </div>
               </button>
               {card.image_url && (
                 <img src={card.image_url} alt="" className="hidden size-14 shrink-0 rounded-lg bg-muted object-cover sm:block" loading="lazy" />

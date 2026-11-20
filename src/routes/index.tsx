@@ -121,7 +121,7 @@ function SetupScreen({ channels, onStart }: { channels: Channel[]; onStart: (ite
       const nowIso = new Date().toISOString();
       const cards = await fetchAllPages<Card>((from, to) => {
         let q = supabase.from("cards").select(CARD_COLUMNS);
-        if (!config.allChannels) q = q.in("channel_id", config.channelIds);
+        if (!config.allChannels) q = q.overlaps("channel_ids", config.channelIds);
         if (config.dueOnly) {
           if (config.mode === "forward") q = q.lte("fwd_due_at", nowIso);
           else if (config.mode === "reverse") q = q.lte("rev_due_at", nowIso);
@@ -317,7 +317,13 @@ function Player({ initial, channels, onExit }: { initial: SessionItem[]; channel
         className={cn("index-card flex flex-1 flex-col overflow-hidden animate-card-in", !flipped && "cursor-pointer")}
       >
         <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3 md:px-6">
-          <ChannelPill channel={card.channel_id ? channelMap.get(card.channel_id) : null} />
+          <div className="flex min-w-0 flex-wrap gap-1.5">
+            {card.channel_ids.length ? (
+              card.channel_ids.map((id) => <ChannelPill key={id} channel={channelMap.get(id)} />)
+            ) : (
+              <ChannelPill channel={null} />
+            )}
+          </div>
           <span className={cn("shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold", reverse ? "bg-primary/12 text-primary" : "bg-grade-good/15 text-grade-good")}>
             {reverse ? "Угадай термин" : "Вспомни факты"}
           </span>
