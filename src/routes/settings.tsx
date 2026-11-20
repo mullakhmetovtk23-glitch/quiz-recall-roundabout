@@ -332,7 +332,7 @@ function AiSettings() {
                     setModel("");
                   }
                 }}
-                placeholder="ghp_…, github_pat_…, sk-or-…, AIza…"
+                placeholder="AQ.…, AIza…, ghp_…, github_pat_…, gsk_…, sk-or-…"
                 className="h-11 rounded-xl pl-10"
               />
             </div>
@@ -360,8 +360,7 @@ function AiSettings() {
               const resolved = resolveLlmProvider(key);
               const name = resolved.provider === "github" ? "GitHub Models"
                 : resolved.provider === "openrouter" ? "OpenRouter"
-                : resolved.provider === "vertex" ? "Google Gemini (Vertex AI)"
-                : resolved.provider === "gemini" ? "Google AI Studio"
+                : resolved.provider === "gemini" ? "Google AI Studio (Gemini)"
                 : resolved.provider === "groq" ? "Groq"
                 : "Mistral AI";
               return <p className="mt-2 text-xs font-medium text-primary">Распознано: {name}</p>;

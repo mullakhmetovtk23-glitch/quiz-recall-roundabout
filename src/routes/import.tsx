@@ -241,9 +241,7 @@ function ImportPage() {
       }
 
       if (!pauseRef.current && !cancelRef.current && batch < batchCount - 1) {
-        if (settings.llmApiKey.startsWith("ghp_") || settings.llmApiKey.startsWith("github_pat_")) {
-          await sleep(4500);
-        }
+        await sleep(6500);
       }
 
       let added = 0, skipped = 0, failed = 0;
