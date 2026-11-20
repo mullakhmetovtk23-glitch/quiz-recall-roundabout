@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { keepPreviousData, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { ImageIcon, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Download, ImageIcon, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -111,16 +111,23 @@ function LibraryPage() {
             {cardsQuery.isPending ? "Загрузка…" : `Карточек: ${count}`}
           </p>
         </div>
-        <Button
-          size="lg"
-          className="h-11 rounded-xl px-4"
-          onClick={() => {
-            setEditing(null);
-            setFormOpen(true);
-          }}
-        >
-          <Plus /> <span className="hidden sm:inline">Добавить</span>
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          <Link to="/import">
+            <Button variant="outline" size="lg" className="h-11 rounded-xl px-3">
+              <Download /> <span className="hidden sm:inline">Импорт JSON</span>
+            </Button>
+          </Link>
+          <Button
+            size="lg"
+            className="h-11 rounded-xl px-4"
+            onClick={() => {
+              setEditing(null);
+              setFormOpen(true);
+            }}
+          >
+            <Plus /> <span className="hidden sm:inline">Добавить</span>
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row">

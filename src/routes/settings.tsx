@@ -211,32 +211,69 @@ function ChannelRow({ channel, onPatch, onDelete }: { channel: Channel; onPatch:
 }
 
 function TelegramWebhookSettings() {
+  const [token, setToken] = useState("");
   const [status, setStatus] = useState("Не проверено");
   const [loading, setLoading] = useState(false);
-  const projectUrl = (import.meta as any).env?.VITE_SUPABASE_URL ?? "";
-  const url = projectUrl ? `${projectUrl}/functions/v1/telegram-webhook` : "https://<project-ref>.supabase.co/functions/v1/telegram-webhook";
+  const url = typeof window !== "undefined" ? `${window.location.origin}/api/telegram-webhook` : "/api/telegram-webhook";
+
+  useEffect(() => {
+    void supabase.from("app_settings").select("value").eq("key", "telegram_bot_token").maybeSingle()
+      .then(({ data }) => setToken(data?.value ?? ""));
+  }, []);
+
+  async function saveToken() {
+    const value = token.trim();
+    if (!value) {
+      toast.error("Введите токен бота");
+      return false;
+    }
+    const { error } = await supabase.from("app_settings").upsert({
+      key: "telegram_bot_token",
+      value,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "key" });
+    if (error) {
+      toast.error(error.message);
+      return false;
+    }
+    toast.success("Токен бота сохранён");
+    return true;
+  }
 
   async function connect() {
     setLoading(true);
     try {
-      const token = prompt("Введите TELEGRAM_BOT_TOKEN бота:");
-      if (!token) return;
-      const set = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }),
+      if (!(await saveToken())) return;
+      const res = await fetch("/api/telegram-webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "checkTelegramWebhook", url }),
       });
-      if (!set.ok) throw new Error(`setWebhook: ${set.status}`);
-      const info = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`).then((r) => r.json()) as any;
-      setStatus(info.ok ? (info.result?.url === url ? `Подключено · обновлено ${info.result?.last_error_date ? "с ошибкой" : "успешно"}` : "Вебхук Telegram не совпадает") : "Ошибка получения состояния");
+      const info = await res.json() as any;
+      if (!res.ok || !info.ok) throw new Error(info.error ?? "Ошибка проверки вебхука");
+      if (info.connected) {
+        setStatus(info.last_error_message
+          ? `Подключено, последняя ошибка: ${info.last_error_message}`
+          : `Подключено · ожидание обновлений: ${info.pending_update_count ?? 0}`);
+      } else {
+        setStatus(`Вебхук не совпадает с URL: ${info.url || "пусто"}`);
+      }
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Не удалось проверить вебхук");
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <section>
       <SectionTitle>Синхронизация с Telegram-ботом</SectionTitle>
       <div className="index-card space-y-3 p-5">
-        <p className="text-xs text-muted-foreground">URL Edge Function</p>
+        <div className="space-y-1.5">
+          <Label htmlFor="telegram-bot-token">Токен бота</Label>
+          <Input id="telegram-bot-token" type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="123456789:AA..." className="h-11 rounded-xl" />
+        </div>
+        <p className="text-xs text-muted-foreground">URL вебхука приложения</p>
         <code className="block break-all rounded-xl bg-secondary p-3 text-xs">{url}</code>
         <p className="text-sm">Статус: <b>{status}</b></p>
         <Button className="h-11 rounded-xl" disabled={loading} onClick={() => void connect()}>

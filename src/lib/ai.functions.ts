@@ -15,6 +15,7 @@ import {
   normalizeCategoryNames,
   type PostLabel,
   type ImprovedCard,
+  BATCH_ATOMIC_SYSTEM_PROMPT,
 } from "./label-prompt";
 
 const inputSchema = z.object({
@@ -25,6 +26,64 @@ const inputSchema = z.object({
 export type LabelResult =
   | { ok: true; label: PostLabel }
   | { ok: false; error: string; stop: boolean };
+
+export interface AtomicCardLabel {
+  term: string;
+  hook: string;
+  full_text: string;
+  category_names: string[];
+}
+
+export type BatchLabelResult =
+  | { ok: true; items: Record<number, AtomicCardLabel[]> }
+  | { ok: false; error: string; stop: boolean };
+
+const batchInputSchema = z.object({
+  posts: z.array(z.object({ id: z.number(), text: z.string().min(1).max(4000) })).min(1).max(5),
+  categories: z.array(z.string().max(120)).max(60),
+});
+
+export const labelPostBatch = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => batchInputSchema.parse(d))
+  .handler(async ({ data }): Promise<BatchLabelResult> => {
+    try {
+      const res = await generateChatCompletion({
+        model: "openai/gpt-6-astra",
+        messages: [
+          { role: "system", content: BATCH_ATOMIC_SYSTEM_PROMPT },
+          { role: "user", content: JSON.stringify({ categories: data.categories, posts: data.posts }) },
+        ],
+        response_format: {
+          type: "json_object",
+        },
+      });
+      const raw = JSON.parse(res.choices[0]?.message?.content ?? '{"items":[]}') as { items?: unknown[] };
+      const items: Record<number, AtomicCardLabel[]> = {};
+      for (const item of Array.isArray(raw.items) ? raw.items : []) {
+        if (!item || typeof item !== "object") continue;
+        const id = Number((item as any).id);
+        if (!data.posts.some((p) => p.id === id)) continue;
+        const cards = (Array.isArray((item as any).cards) ? (item as any).cards : []).slice(0, 6);
+        const normalized = cards.map((c: any) => ({
+          term: typeof c.term === "string" ? c.term.trim() : "",
+          hook: typeof c.hook === "string" ? c.hook.trim() : "",
+          full_text: typeof c.full_text === "string" ? c.full_text.trim() : "",
+          category_names: normalizeCategoryNames(c.category_names, data.categories),
+        })).filter((c: AtomicCardLabel) => c.term && c.full_text);
+        if (normalized.length) items[id] = normalized;
+      }
+      return { ok: true, items };
+    } catch (e) {
+      console.error("labelPostBatch failed", e);
+      if (e instanceof PaymentRequiredError)
+        return { ok: false, stop: true, error: "Закончились кредиты ИИ — пополните баланс и продолжите." };
+      if (e instanceof RateLimitError)
+        return { ok: false, stop: true, error: "429: лимит ИИ. Пауза 15 секунд." };
+      if (e instanceof GatewayError)
+        return { ok: false, stop: true, error: "ИИ не смог обработать батч. Импорт поставлен на паузу." };
+      return { ok: false, stop: true, error: "Не удалось разобрать ответ ИИ. Импорт поставлен на паузу." };
+    }
+  });
 
 /** Turns a post into { term, hook, category_name } with the built-in AI. */
 export const labelPost = createServerFn({ method: "POST" })

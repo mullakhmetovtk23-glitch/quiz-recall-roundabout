@@ -8,13 +8,22 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OptionCard, SectionTitle } from "@/components/OptionCard";
 import { supabase } from "@/integrations/supabase/client";
-import { labelPost, type LabelResult } from "@/lib/ai.functions";
-import { basicLabel } from "@/lib/label-prompt";
+import { labelPostBatch, type AtomicCardLabel } from "@/lib/ai.functions";
 import { channelsQuery, fetchAllPages } from "@/lib/db";
-import { labelWithOwnKey } from "@/lib/labeler";
+import { labelPostBatchWithOwnKey } from "@/lib/labeler";
 import { useSettings } from "@/lib/settings";
 import { uploadCardImage } from "@/lib/storage";
 import { buildPhotoMap, parseTelegramExport, type ParsedExport, type ParsedPost } from "@/lib/telegram";
@@ -37,14 +46,14 @@ export const Route = createFileRoute("/import")({
 
 type RunStatus = "idle" | "running" | "paused" | "done" | "cancelled";
 type Outcome = "added" | "skipped" | "failed" | "retry";
-const BATCH_SIZE = 15;
+const BATCH_SIZE = 5;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function ImportPage() {
   const { data: channels } = useSuspenseQuery(channelsQuery);
   const qc = useQueryClient();
   const { settings } = useSettings();
-  const labelFn = useServerFn(labelPost);
+  const labelBatchFn = useServerFn(labelPostBatch);
 
   const [parsed, setParsed] = useState<ParsedExport | null>(null);
   const [photos, setPhotos] = useState<Map<string, File>>(new Map());
@@ -54,9 +63,11 @@ function ImportPage() {
   const [skipExisting, setSkipExisting] = useState(true);
 
   const [status, setStatus] = useState<RunStatus>("idle");
-  const [progress, setProgress] = useState({ processed: 0, total: 0, added: 0, skipped: 0, failed: 0 });
+  const [progress, setProgress] = useState({ processed: 0, total: 0, created: 0, added: 0, skipped: 0, failed: 0 });
   const [notice, setNotice] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
+  const [cleanupCount, setCleanupCount] = useState<number | null>(null);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const pauseRef = useRef(false);
   const cancelRef = useRef(false);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -79,7 +90,7 @@ function ImportPage() {
       setPhotos(photoMap);
       setSourceLabel(label);
       setStatus("idle");
-      setProgress({ processed: 0, total: result.posts.length, added: 0, skipped: 0, failed: 0 });
+      setProgress({ processed: 0, total: result.posts.length, created: 0, added: 0, skipped: 0, failed: 0 });
       setErrors([]);
       setNotice(null);
     } catch (e) {
@@ -103,71 +114,70 @@ function ImportPage() {
   const withPhoto = parsed?.posts.filter((p) => p.photo).length ?? 0;
   const photosFound = parsed?.posts.filter((p) => p.photo && photos.has(p.photo)).length ?? 0;
 
-  async function processPost(post: ParsedPost, chatId: string, existing: Set<number>, byName: Map<string, string>): Promise<Outcome> {
-    if (skipExisting && existing.has(post.tgMessageId)) return "skipped";
+  async function processBatch(posts: ParsedPost[], chatId: string, existing: Set<number>, byName: Map<string, string>): Promise<{ outcomes: Map<number, Outcome>; created: number }> {
+    const candidates = posts.filter((p) => {
+      const clean = p.text?.replace(/\s+/g, " ").trim() ?? "";
+      const noise = /^\s*(joined|added|pinned|left|service|подключ|присоедини)/i.test(clean);
+      return clean.length >= 40 && !noise && (!skipExisting || !existing.has(p.tgMessageId));
+    });
+    const outcomes = new Map<number, Outcome>();
+    posts.forEach((p) => outcomes.set(p.tgMessageId, skipExisting && existing.has(p.tgMessageId) ? "skipped" : "failed"));
+    if (!candidates.length) return { outcomes, created: 0 };
 
-    let term = "";
-    let hook = "";
-    let channelIds: string[] = destination === "channel" && targetChannel ? [targetChannel] : [];
+    const aiPosts = candidates.map((p) => ({ id: p.tgMessageId, text: p.text.slice(0, 4000) }));
+    const categories = destination === "ai" ? channels.map((c) => c.name) : [];
+    const res = settings.llmApiKey
+      ? await labelPostBatchWithOwnKey(aiPosts, categories, settings)
+      : await labelBatchFn({ data: { posts: aiPosts, categories } });
 
-    if (post.text) {
-      const categories = destination === "ai" ? channels.map((c) => c.name) : [];
-      let res: LabelResult;
-      if (!settings.llmApiKey) {
-        const base = basicLabel(post.text);
-        res = { ok: true, label: { ...base, category_names: [] } };
-      } else {
-        try {
-          res = await labelWithOwnKey(post.text, categories, settings);
-        } catch {
-          res = { ok: false, stop: false, error: "Сервер ИИ недоступен" };
+    if (!res.ok) {
+      pauseRef.current = true;
+      setStatus("paused");
+      setNotice(res.error);
+      return { outcomes, created: 0 };
+    }
+
+    let created = 0;
+    for (const post of candidates) {
+      const cards: AtomicCardLabel[] = res.items[post.tgMessageId] ?? [];
+      if (!cards.length) {
+        setErrors((e) => [`Пост №${post.tgMessageId}: ИИ не вернул карточки`, ...e].slice(0, 30));
+        outcomes.set(post.tgMessageId, "failed");
+        continue;
+      }
+
+      let image_url: string | null = null;
+      const photoFile = post.photo ? photos.get(post.photo) : undefined;
+      if (photoFile) {
+        try { image_url = await uploadCardImage(photoFile, photoFile.name, `tg/${chatId.replace(/[^\w-]/g, "_")}`); }
+        catch { setErrors((e) => [`Пост №${post.tgMessageId}: картинка не загрузилась`, ...e].slice(0, 30)); }
+      }
+
+      for (let i = 0; i < cards.length; i++) {
+        const card = cards[i];
+        const channelIds = destination === "channel" && targetChannel
+          ? [targetChannel]
+          : card.category_names.map((n) => byName.get(n.toLowerCase())).filter((id): id is string => !!id);
+        const tgId = i === 0 ? post.tgMessageId : post.tgMessageId * 100 + i;
+        const { error } = await supabase.from("cards").upsert({
+          source_chat_id: chatId,
+          tg_message_id: tgId,
+          term: card.term,
+          hook: card.hook,
+          full_text: card.full_text,
+          image_url: i === 0 ? image_url : null,
+          channel_ids: channelIds,
+        }, { onConflict: "source_chat_id,tg_message_id" });
+        if (error) {
+          setErrors((e) => [`Пост №${post.tgMessageId}: карточка ${i + 1} не сохранилась`, ...e].slice(0, 30));
+          outcomes.set(post.tgMessageId, "failed");
+          continue;
         }
-      }
-      if (!res.ok) {
-        if (res.stop) {
-          pauseRef.current = true;
-          setStatus("paused");
-          setNotice(res.error);
-          return "retry";
-        }
-        setErrors((e) => [`Пост №${post.tgMessageId}: ${res.error}`, ...e].slice(0, 30));
-        return "failed";
-      }
-      term = res.label.term;
-      hook = res.label.hook;
-      if (destination === "ai")
-        channelIds = res.label.category_names
-          .map((n) => byName.get(n.toLowerCase()))
-          .filter((id): id is string => !!id);
-    }
-
-    let image_url: string | null = null;
-    const photoFile = post.photo ? photos.get(post.photo) : undefined;
-    if (photoFile) {
-      try {
-        image_url = await uploadCardImage(photoFile, photoFile.name, `tg/${chatId.replace(/[^\w-]/g, "_")}`);
-      } catch {
-        setErrors((e) => [`Пост №${post.tgMessageId}: картинка не загрузилась`, ...e].slice(0, 30));
+        created++;
+        outcomes.set(post.tgMessageId, "added");
       }
     }
-
-    const { error } = await supabase.from("cards").upsert(
-      {
-        source_chat_id: chatId,
-        tg_message_id: post.tgMessageId,
-        term,
-        hook,
-        full_text: post.text,
-        image_url,
-        channel_ids: channelIds,
-      },
-      { onConflict: "source_chat_id,tg_message_id" },
-    );
-    if (error) {
-      setErrors((e) => [`Пост №${post.tgMessageId}: не сохранился`, ...e].slice(0, 30));
-      return "failed";
-    }
-    return "added";
+    return { outcomes, created };
   }
 
   async function run() {
@@ -182,7 +192,7 @@ function ImportPage() {
     setErrors([]);
     setStatus("running");
     const posts = parsed.posts;
-    setProgress({ processed: 0, total: posts.length, added: 0, skipped: 0, failed: 0 });
+    setProgress({ processed: 0, total: posts.length, created: 0, added: 0, skipped: 0, failed: 0 });
 
     let existing = new Set<number>();
     try {
@@ -205,23 +215,33 @@ function ImportPage() {
       if (cancelRef.current) break;
       setNotice(`Батч ${batch + 1} из ${batchCount}`);
       const slice = posts.slice(batch * BATCH_SIZE, (batch + 1) * BATCH_SIZE);
-      for (const post of slice) {
-        if (cancelRef.current) break;
-        while (pauseRef.current && !cancelRef.current) await sleep(250);
-        let outcome = await processPost(post, parsed.chatId, existing, byName);
-        if (outcome === "retry") {
-          setNotice("429 или лимит ИИ: пауза 15 секунд");
-          await sleep(15000);
-          outcome = await processPost(post, parsed.chatId, existing, byName);
+
+      let result = await processBatch(slice, parsed.chatId, existing, byName);
+      if (pauseRef.current) {
+        setNotice("ИИ вернул ошибку или лимит: пауза 15 секунд");
+        await sleep(15000);
+        if (!cancelRef.current) {
+          pauseRef.current = false;
+          setStatus("running");
+          setNotice(null);
+          result = await processBatch(slice, parsed.chatId, existing, byName);
         }
-        setProgress((p) => ({
-          ...p,
-          processed: p.processed + 1,
-          added: p.added + (outcome === "added" ? 1 : 0),
-          skipped: p.skipped + (outcome === "skipped" ? 1 : 0),
-          failed: p.failed + (outcome === "failed" ? 1 : 0),
-        }));
       }
+
+      let added = 0, skipped = 0, failed = 0;
+      result.outcomes.forEach((outcome) => {
+        if (outcome === "added") added++;
+        if (outcome === "skipped") skipped++;
+        if (outcome === "failed") failed++;
+      });
+      setProgress((p) => ({
+        ...p,
+        processed: p.processed + slice.length,
+        created: p.created + result.created,
+        added: p.added + added,
+        skipped: p.skipped + skipped,
+        failed: p.failed + failed,
+      }));
     }
     setStatus(cancelRef.current ? "cancelled" : "done");
     void qc.invalidateQueries({ queryKey: ["cards"] });
@@ -229,6 +249,41 @@ function ImportPage() {
   }
 
   const pct = progress.total ? (progress.processed / progress.total) * 100 : 0;
+
+  async function countRawImportCards() {
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const { count, error } = await supabase
+      .from("cards")
+      .select("id", { count: "exact", head: true })
+      .not("tg_message_id", "is", null)
+      .or(`full_text.is.null,full_text.eq.,channel_ids.cs.{},created_at.gte.${cutoff}`);
+    if (error) {
+      toast.error("Не удалось определить карточки неудачного импорта");
+      return;
+    }
+    setCleanupCount(count ?? 0);
+    setCleanupOpen(true);
+  }
+
+  async function deleteRawImportCards() {
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from("cards")
+      .delete()
+      .not("tg_message_id", "is", null)
+      .or(`full_text.is.null,full_text.eq.,channel_ids.cs.{},created_at.gte.${cutoff}`)
+      .select("id");
+    if (error) {
+      toast.error("Не удалось удалить неудачные карточки импорта");
+      return;
+    }
+    const removed = data?.length ?? 0;
+    setCleanupOpen(false);
+    setCleanupCount(0);
+    void qc.invalidateQueries({ queryKey: ["cards"] });
+    void qc.invalidateQueries({ queryKey: ["stats"] });
+    toast.success(`Удалено карточек: ${removed}`);
+  }
 
   return (
     <div className="space-y-8 animate-card-in">
@@ -376,6 +431,7 @@ function ImportPage() {
             <Progress value={pct} className="h-2.5" />
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
               <span className="text-grade-easy">Добавлено: {progress.added}</span>
+              <span className="text-grade-easy">Создано карточек: {progress.created}</span>
               <span className="text-muted-foreground">Пропущено: {progress.skipped}</span>
               <span className={progress.failed ? "text-destructive" : "text-muted-foreground"}>Ошибок: {progress.failed}</span>
             </div>
@@ -444,6 +500,35 @@ function ImportPage() {
           Выберите экспорт → проверьте предпросмотр → ИИ сделает из каждого поста карточку «термин + крючок».
         </div>
       )}
+
+      <section className="mt-6 flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center">
+        <div className="min-w-0 flex-1">
+          <div className="font-medium">Очистка неудачного импорта</div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Удалить сырые карточки, сохранённые без ИИ-разметки за последние 48 часов.
+          </p>
+        </div>
+        <Button variant="outline" className="h-11 rounded-xl text-destructive" onClick={() => void countRawImportCards()}>
+          <Trash2 /> Удалить карточки без ИИ
+        </Button>
+      </section>
+
+      <AlertDialog open={cleanupOpen} onOpenChange={setCleanupOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить неудачный импорт?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Найдено карточек без ИИ-разметки: <b>{cleanupCount ?? 0}</b>. Это необратимо.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction disabled={!cleanupCount} onClick={() => void deleteRawImportCards()}>
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
