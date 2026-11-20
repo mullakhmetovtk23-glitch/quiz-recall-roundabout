@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
-import { checkOwnLlmKey, resolveOwnLlmProvider } from "@/lib/ai.functions";
+import { checkApiKey, resolveLlmProvider } from "@/lib/labeler";
 import { KeyRound, Monitor, Moon, Plus, Sun, Trash2, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -293,7 +292,6 @@ function AiSettings() {
   const [key, setKey] = useState(settings.llmApiKey);
   const [checkResult, setCheckResult] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
-  const checkKeyFn = useServerFn(checkOwnLlmKey);
   useEffect(() => {
     setBaseUrl(settings.llmBaseUrl);
     setModel(settings.llmModel);
@@ -340,7 +338,7 @@ function AiSettings() {
                 setChecking(true);
                 setCheckResult(null);
                 try {
-                  const result = await checkKeyFn({ data: { apiKey: key.trim() } });
+                  const result = await checkApiKey(key.trim());
                   setCheckResult(result.ok ? `✅ Ключ работает (${result.provider})` : `❌ ${result.error}`);
                 } finally {
                   setChecking(false);
@@ -352,7 +350,7 @@ function AiSettings() {
           </div>
           {key.trim() ? (
             (() => {
-              const resolved = resolveOwnLlmProvider(key);
+              const resolved = resolveLlmProvider(key);
               const name = resolved.provider === "github" ? "GitHub Models" : resolved.provider === "openrouter" ? "OpenRouter" : resolved.provider === "gemini" ? "Google Gemini" : "Mistral AI";
               return <p className="mt-2 text-xs font-medium text-primary">Распознано: {name}</p>;
             })()
@@ -408,7 +406,7 @@ function AiSettings() {
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          Сейчас: {key.trim() ? `ключ распознан как ${resolveOwnLlmProvider(key).provider}` : "встроенный ИИ"}
+          Сейчас: {key.trim() ? `ключ распознан как ${resolveLlmProvider(key).provider}` : "встроенный ИИ"}
         </p>
       </div>
     </section>
