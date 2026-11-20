@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { checkOwnLlmKey, resolveOwnLlmProvider } from "@/lib/ai.functions";
 import { KeyRound, Monitor, Moon, Plus, Sun, Trash2, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -289,6 +291,9 @@ function AiSettings() {
   const [baseUrl, setBaseUrl] = useState(settings.llmBaseUrl);
   const [model, setModel] = useState(settings.llmModel);
   const [key, setKey] = useState(settings.llmApiKey);
+  const [checkResult, setCheckResult] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const checkKeyFn = useServerFn(checkOwnLlmKey);
   useEffect(() => {
     setBaseUrl(settings.llmBaseUrl);
     setModel(settings.llmModel);
@@ -303,29 +308,77 @@ function AiSettings() {
           По умолчанию импорт размечает встроенный ИИ — ключ не нужен. Если хотите использовать свой
           OpenAI-совместимый API, укажите ключ: он хранится только в этом браузере.
         </p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="llm-url">Адрес API</Label>
-            <Input id="llm-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className="h-11 rounded-xl" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="llm-model">Модель</Label>
-            <Input id="llm-model" value={model} onChange={(e) => setModel(e.target.value)} className="h-11 rounded-xl" />
-          </div>
-        </div>
         <div className="space-y-1.5">
           <Label htmlFor="llm-key">Ключ API</Label>
-          <div className="relative">
-            <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input id="llm-key" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder="sk-…" className="h-11 rounded-xl pl-10" />
+          <div className="flex gap-2">
+            <div className="relative min-w-0 flex-1">
+              <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="llm-key"
+                type="password"
+                autoComplete="off"
+                value={key}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setKey(value);
+                  setCheckResult(null);
+                  if (value.trim()) {
+                    setBaseUrl("");
+                    setModel("");
+                  }
+                }}
+                placeholder="ghp_…, github_pat_…, sk-or-…, AIza…"
+                className="h-11 rounded-xl pl-10"
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 rounded-xl"
+              disabled={!key.trim() || checking}
+              onClick={async () => {
+                setChecking(true);
+                setCheckResult(null);
+                try {
+                  const result = await checkKeyFn({ data: { apiKey: key.trim() } });
+                  setCheckResult(result.ok ? `✅ Ключ работает (${result.provider})` : `❌ ${result.error}`);
+                } finally {
+                  setChecking(false);
+                }
+              }}
+            >
+              {checking ? "Проверка…" : "Проверить ключ"}
+            </Button>
           </div>
+          {key.trim() ? (
+            (() => {
+              const resolved = resolveOwnLlmProvider(key);
+              const name = resolved.provider === "github" ? "GitHub Models" : resolved.provider === "openrouter" ? "OpenRouter" : resolved.provider === "gemini" ? "Google Gemini" : "Mistral AI";
+              return <p className="mt-2 text-xs font-medium text-primary">Распознано: {name}</p>;
+            })()
+          ) : <p className="mt-2 text-xs text-muted-foreground">Ключ не задан — используется встроенный ИИ Lovable</p>}
+          {checkResult && <p className="mt-2 text-sm">{checkResult}</p>}
         </div>
+
+        <details className="rounded-xl border border-border bg-card px-3 py-2">
+          <summary className="cursor-pointer text-sm font-medium">Расширенные настройки (только для своего сервера)</summary>
+          <div className="grid gap-3 pt-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="llm-url">Адрес API</Label>
+              <Input id="llm-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className="h-11 rounded-xl" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="llm-model">Модель</Label>
+              <Input id="llm-model" value={model} onChange={(e) => setModel(e.target.value)} className="h-11 rounded-xl" />
+            </div>
+          </div>
+        </details>
         <div className="flex flex-wrap gap-2">
           <Button
             className="h-11 rounded-xl"
             onClick={() => {
               const customKey = key.trim();
-              save({ llmBaseUrl: baseUrl.trim(), llmModel: model.trim(), llmApiKey: customKey });
+              save({ llmBaseUrl: customKey ? "" : baseUrl.trim(), llmModel: customKey ? "" : model.trim(), llmApiKey: customKey });
               void supabase.from("app_settings").upsert({
                 key: "custom_llm_api_key",
                 value: customKey,
@@ -355,7 +408,7 @@ function AiSettings() {
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          Сейчас: {settings.llmApiKey ? `ваш ключ (${settings.llmModel})` : "встроенный ИИ"}
+          Сейчас: {key.trim() ? `ключ распознан как ${resolveOwnLlmProvider(key).provider}` : "встроенный ИИ"}
         </p>
       </div>
     </section>

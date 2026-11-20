@@ -3,13 +3,18 @@ import type { LabelResult, ImproveResult } from "./ai.functions";
 import { IMPROVE_SYSTEM_PROMPT, buildImproveUserPrompt, normalizeCategoryNames } from "./label-prompt";
 import type { AppSettings } from "./settings";
 import type { AtomicCardLabel, BatchLabelResult } from "./ai.functions";
+import { callOwnLlm } from "./ai.functions";
+
+async function callOwnLlmServer(apiKey: string, messages: { role: string; content: string }[]) {
+  return callOwnLlm({ data: { apiKey, messages } });
+}
 
 export type LlmProvider = "github" | "openrouter" | "gemini" | "mistral";
 
 export function resolveLlmProvider(apiKey: string): { provider: LlmProvider; url: string; model: string } {
   const key = apiKey.trim();
   if (key.startsWith("ghp_") || key.startsWith("github_pat_")) {
-    return { provider: "github", url: "https://models.inference.ai.azure.com/chat/completions", model: "gpt-4o-mini" };
+    return { provider: "github", url: "https://models.github.ai/inference/chat/completions", model: "gpt-4o-mini" };
   }
   if (key.startsWith("sk-or-")) {
     return { provider: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "openrouter/free" };
@@ -27,44 +32,15 @@ export class LlmHttpError extends Error {
 }
 
 export async function callCustomLlm(apiKey: string, messages: { role: string; content: string }[], jsonMode = true) {
-  const provider = resolveLlmProvider(apiKey);
-  if (provider.provider === "gemini") {
-    const url = `${provider.url}?key=${encodeURIComponent(apiKey)}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: messages.find((m) => m.role === "system")?.content ?? "" }] },
-        contents: messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-        generationConfig: jsonMode ? { responseMimeType: "application/json" } : {},
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new LlmHttpError(res.status, body);
-    }
-    const json = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-    const content = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-    return { content, status: res.status };
+  const key = apiKey.trim();
+  if (!key) throw new Error("Пользовательский ключ не задан");
+  const serverResult = await callOwnLlmServer(key, messages);
+  if (!serverResult.ok) {
+    if (/^HTTP 429/i.test(serverResult.error)) throw new LlmHttpError(429, serverResult.error);
+    throw new Error(serverResult.error);
   }
+  return { content: serverResult.content, status: 200 };
 
-  const headers: Record<string, string> = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` };
-  if (provider.provider === "openrouter") headers["HTTP-Referer"] = typeof window !== "undefined" ? window.location.origin : "";
-  const res = await fetch(provider.url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: provider.model,
-      ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
-      messages,
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new LlmHttpError(res.status, body);
-  }
-  const json = await res.json() as { choices?: { message?: { content?: string } }[] };
-  return { content: json.choices?.[0]?.message?.content ?? "", status: res.status };
 }
 
 export async function labelPostBatchWithOwnKey(
