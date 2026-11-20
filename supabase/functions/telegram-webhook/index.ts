@@ -29,8 +29,14 @@ Deno.serve(async (req) => {
 
   if (gemini && text) {
     const prompt=`Разметь пост для карточки ЧГК. Верни JSON: term, hook, full_text, category_names (1-3 из ${JSON.stringify(categories)}). ${channel.ai_prompt ?? ""}\nПост:\n${text.slice(0,6000)}`;
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${gemini}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json"}})});
-    if (r.ok) { const j=await r.json(); const raw=j.candidates?.[0]?.content?.parts?.map((p:any)=>p.text).join("") ?? "{}"; try { const x=JSON.parse(raw); term=x.term||term; hook=x.hook||hook; full_text=x.full_text||full_text; names=Array.isArray(x.category_names)?x.category_names:[]; } catch {} }
+    const models=["gemini-3.8-flash","gemini-3.5-flash","gemini-flash-latest"];
+    let r: Response | null=null, raw="";
+    for (const model of models) {
+      r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${gemini}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json"}})});
+      if (r.ok) { const j=await r.json(); raw=j.candidates?.[0]?.content?.parts?.map((p:any)=>p.text).join("") ?? "{}"; break; }
+      if (r.status!==404) break;
+    }
+    if (r?.ok) { try { const x=JSON.parse(raw); term=x.term||term; hook=x.hook||hook; full_text=x.full_text||full_text; names=Array.isArray(x.category_names)?x.category_names:[]; } catch {} }
   }
   const ids=categories.map((n,i)=>n).length ? (await supabase.from("channels").select("id,name")).data?.filter((c:any)=>names.map((n:string)=>n.toLowerCase()).includes(c.name.toLowerCase())).map((c:any)=>c.id) ?? [channel.id] : [channel.id];
 

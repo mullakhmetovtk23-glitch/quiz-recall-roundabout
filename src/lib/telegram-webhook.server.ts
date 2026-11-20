@@ -12,8 +12,8 @@ function resolveWebhookLlmProvider(key: string): { provider: WebhookProvider; ur
     return { provider: "github", url: "https://models.inference.ai.azure.com/chat/completions", model: "gpt-4o-mini" };
   if (trimmed.startsWith("sk-or-"))
     return { provider: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "openrouter/free" };
-  if (trimmed.startsWith("AIza"))
-    return { provider: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", model: "gemini-2.5-flash" };
+  if (trimmed.startsWith("AQ.") || trimmed.startsWith("AIza"))
+    return { provider: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent", model: "gemini-3.8-flash" };
   return { provider: "mistral", url: "https://api.mistral.ai/v1/chat/completions", model: "mistral-small-latest" };
 }
 
@@ -23,24 +23,27 @@ async function callWebhookLlm(
   messages: { role: string; content: string }[],
 ): Promise<string> {
   if (provider.provider === "gemini") {
-    const res = await fetch(`${provider.url}?key=${encodeURIComponent(key)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: messages.find((m) => m.role === "system")?.content ?? "" }] },
-        contents: messages.filter((m) => m.role !== "system").map((m) => ({
-          role: m.role === "assistant" ? "model" : "user",
-          parts: [{ text: m.content }],
-        })),
-        generationConfig: { responseMimeType: "application/json" },
-      }),
-    });
-    if (!res.ok) {
+    const models = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-flash-latest"] as const;
+    let lastError = "";
+    for (const model of models) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: messages.map((m) => m.content).join("\n\n") }] }],
+          generationConfig: { responseMimeType: "application/json" },
+        }),
+      });
       const body = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status}: ${body || "пустой ответ сервера"}`);
+      if (res.ok) {
+        const json = JSON.parse(body) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+        return json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+      }
+      lastError = `HTTP ${res.status}: ${body || "пустой ответ сервера"}`;
+      if (res.status !== 404) throw new Error(lastError);
     }
-    const json = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-    return json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+    throw new Error(lastError || "Google Gemini не ответил доступной моделью");
   }
 
   const res = await fetch(provider.url, {

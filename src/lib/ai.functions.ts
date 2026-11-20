@@ -38,14 +38,12 @@ export type BatchLabelResult =
   | { ok: true; items: Record<number, AtomicCardLabel[]> }
   | { ok: false; error: string; stop: boolean };
 
-export type OwnLlmProvider = "github" | "openrouter" | "gemini" | "vertex" | "groq" | "mistral";
+export type OwnLlmProvider = "github" | "openrouter" | "gemini" | "groq" | "mistral";
 
 export function resolveOwnLlmProvider(apiKey: string): { provider: OwnLlmProvider; url: string; model: string } {
   const key = apiKey.trim();
-  if (key.startsWith("AQ."))
-    return { provider: "vertex", url: "https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent", model: "gemini-2.5-flash" };
-  if (key.startsWith("AIza"))
-    return { provider: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", model: "gemini-2.5-flash" };
+  if (key.startsWith("AQ.") || key.startsWith("AIza"))
+    return { provider: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent", model: "gemini-3.8-flash" };
   if (key.startsWith("ghp_") || key.startsWith("github_pat_"))
     return { provider: "github", url: "https://models.inference.ai.azure.com/chat/completions", model: "gpt-4o-mini" };
   if (key.startsWith("gsk_"))
@@ -58,8 +56,7 @@ export function resolveOwnLlmProvider(apiKey: string): { provider: OwnLlmProvide
 function providerName(provider: OwnLlmProvider): string {
   return provider === "github" ? "GitHub Models"
     : provider === "openrouter" ? "OpenRouter"
-    : provider === "vertex" ? "Google Gemini (Vertex AI)"
-    : provider === "gemini" ? "Google AI Studio"
+    : provider === "gemini" ? "Google AI Studio (Gemini)"
     : provider === "groq" ? "Groq"
     : "Mistral AI";
 }
@@ -69,17 +66,16 @@ async function performOwnLlmRequest(apiKey: string, messages: { role: string; co
   if (!key) throw new Error("Пользовательский ключ не задан");
   const resolved = resolveOwnLlmProvider(key);
 
-  if (resolved.provider === "gemini" || resolved.provider === "vertex") {
-    const vertexUrl = `https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`;
-    const studioUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`;
-    const urls = resolved.provider === "vertex" ? [vertexUrl, studioUrl] : [studioUrl];
+  if (resolved.provider === "gemini") {
+    const models = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-flash-latest"] as const;
     let lastError = "";
-    for (const url of urls) {
+    for (const model of models) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: messages.map((m) => m.content).join("\n\n") }] }],
+          contents: [{ parts: [{ text: messages.map((m) => m.content).join("\n\n") }] }],
           generationConfig: { responseMimeType: "application/json" },
         }),
       });
@@ -88,10 +84,10 @@ async function performOwnLlmRequest(apiKey: string, messages: { role: string; co
         const json = JSON.parse(body) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
         return { content: json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "", provider: resolved.provider };
       }
-      if (resolved.provider === "vertex" && url === vertexUrl && (res.status === 400 || res.status === 404)) continue;
-      throw new Error(`HTTP ${res.status}: ${body || "пустой ответ сервера"}`);
+      lastError = `HTTP ${res.status}: ${body || "пустой ответ сервера"}`;
+      if (res.status !== 404) throw new Error(lastError);
     }
-    throw new Error(lastError || "Google Gemini не ответил доступным endpoint");
+    throw new Error(lastError || "Google Gemini не ответил доступной моделью");
   }
 
   const urls = resolved.provider === "github"
@@ -258,7 +254,7 @@ export const improveCard = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<ImproveResult> => {
     try {
       const res = await generateChatCompletion({
-        model: "google/gemini-2.5-flash-lite",
+        model: "google/gemini-3.8-flash",
         messages: [
           { role: "system", content: IMPROVE_SYSTEM_PROMPT },
           { role: "user", content: buildImproveUserPrompt(data.term, data.hook, data.full_text, data.categories, data.comment ?? "") },

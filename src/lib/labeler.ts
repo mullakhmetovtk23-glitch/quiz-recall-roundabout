@@ -9,7 +9,7 @@ export type LlmProvider = "github" | "openrouter" | "gemini" | "groq" | "mistral
 export function resolveLlmProvider(apiKey: string): { provider: LlmProvider; url: string; model: string } {
   const key = apiKey.trim();
   if (key.startsWith("AQ.") || key.startsWith("AIza")) {
-    return { provider: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", model: "gemini-2.5-flash" };
+    return { provider: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent", model: "gemini-3.8-flash" };
   }
   if (key.startsWith("ghp_") || key.startsWith("github_pat_")) {
     return { provider: "github", url: "https://models.inference.ai.azure.com/chat/completions", model: "gpt-4o-mini" };
@@ -41,19 +41,28 @@ async function readError(res: Response): Promise<LlmHttpError> {
   return new LlmHttpError(res.status, message);
 }
 
+const GEMINI_MODEL_FALLBACK = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-flash-latest"] as const;
+
 async function callGoogleGemini(key: string, prompt: string, responseJson: boolean) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key.trim())}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      ...(responseJson ? { generationConfig: { responseMimeType: "application/json" } } : {}),
-    }),
-  });
-  if (!res.ok) throw await readError(res);
-  const json = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-  return json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  let lastError: LlmHttpError | null = null;
+  for (const model of GEMINI_MODEL_FALLBACK) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key.trim())}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        ...(responseJson ? { generationConfig: { responseMimeType: "application/json" } } : {}),
+      }),
+    });
+    if (res.ok) {
+      const json = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+      return json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    }
+    lastError = await readError(res);
+    if (res.status !== 404) throw lastError;
+  }
+  throw lastError ?? new Error("Google Gemini не ответил доступным моделью");
 }
 
 export async function checkApiKey(apiKey: string): Promise<{ ok: true; provider: string } | { ok: false; error: string }> {
