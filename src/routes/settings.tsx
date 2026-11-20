@@ -324,8 +324,16 @@ function AiSettings() {
           <Button
             className="h-11 rounded-xl"
             onClick={() => {
-              save({ llmBaseUrl: baseUrl.trim(), llmModel: model.trim(), llmApiKey: key.trim() });
-              toast.success(key.trim() ? "Свой ключ сохранён" : "Сохранено");
+              const customKey = key.trim();
+              save({ llmBaseUrl: baseUrl.trim(), llmModel: model.trim(), llmApiKey: customKey });
+              void supabase.from("app_settings").upsert({
+                key: "custom_llm_api_key",
+                value: customKey,
+                updated_at: new Date().toISOString(),
+              }, { onConflict: "key" }).then(({ error }) => {
+                if (error) toast.error(`Ключ ИИ сохранён локально, но не синхронизирован: ${error.message}`);
+              });
+              toast.success(customKey ? "Свой ключ сохранён и синхронизирован" : "Сохранено");
             }}
           >
             Сохранить
@@ -336,6 +344,9 @@ function AiSettings() {
               className="h-11 rounded-xl"
               onClick={() => {
                 save({ llmApiKey: "" });
+                void supabase.from("app_settings").upsert({
+                  key: "custom_llm_api_key", value: "", updated_at: new Date().toISOString(),
+                }, { onConflict: "key" });
                 toast.success("Ключ удалён — снова работает встроенный ИИ");
               }}
             >

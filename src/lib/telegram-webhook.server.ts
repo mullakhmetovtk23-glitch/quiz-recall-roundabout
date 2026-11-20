@@ -4,6 +4,61 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const cut = (s: string, n: number) => Array.from(s).slice(0, n).join("");
 
+type WebhookProvider = "github" | "openrouter" | "gemini" | "mistral";
+
+function resolveWebhookLlmProvider(key: string): { provider: WebhookProvider; url: string; model: string } {
+  const trimmed = key.trim();
+  if (trimmed.startsWith("ghp_") || trimmed.startsWith("github_pat_"))
+    return { provider: "github", url: "https://models.inference.ai.azure.com/chat/completions", model: "gpt-4o-mini" };
+  if (trimmed.startsWith("sk-or-"))
+    return { provider: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "openrouter/free" };
+  if (trimmed.startsWith("AIza"))
+    return { provider: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", model: "gemini-2.5-flash" };
+  return { provider: "mistral", url: "https://api.mistral.ai/v1/chat/completions", model: "mistral-small-latest" };
+}
+
+async function callWebhookLlm(
+  key: string,
+  provider: { provider: WebhookProvider; url: string; model: string },
+  messages: { role: string; content: string }[],
+): Promise<string> {
+  if (provider.provider === "gemini") {
+    const res = await fetch(`${provider.url}?key=${encodeURIComponent(key)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: messages.find((m) => m.role === "system")?.content ?? "" }] },
+        contents: messages.filter((m) => m.role !== "system").map((m) => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content }],
+        })),
+        generationConfig: { responseMimeType: "application/json" },
+      }),
+    });
+    if (!res.ok) throw new Error(`Gemini API: ${res.status}`);
+    const json = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+    return json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+  }
+
+  const res = await fetch(provider.url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: provider.model,
+      response_format: { type: "json_object" },
+      messages,
+    }),
+  });
+  if (!res.ok) throw new Error(`ИИ API: ${res.status}`);
+  const json = await res.json() as { choices?: { message?: { content?: string } }[] };
+  return json.choices?.[0]?.message?.content ?? "";
+}
+
+async function getCustomLlmKey(): Promise<string> {
+  const { data } = await (supabaseAdmin as any).from("app_settings").select("value").eq("key", "custom_llm_api_key").maybeSingle();
+  return typeof data?.value === "string" ? data.value.trim() : "";
+}
+
 async function getBotToken(): Promise<string | null> {
   const envToken = process.env["TELEGRAM_BOT_TOKEN"]?.trim();
   if (envToken) return envToken;
@@ -35,25 +90,39 @@ export async function handleTelegramWebhook(request: Request): Promise<Response>
   const names = (channels ?? []).map((c: any) => c.name as string);
   let cards: Array<{ term: string; hook: string; full_text: string; category_names: string[] }> = [];
 
-  if (text.trim() && process.env["LOVABLE_API_KEY"]) {
+  if (text.trim()) {
     try {
-      const res = await generateChatCompletion({
-        model: "openai/gpt-6-astra",
-        messages: [
+      const customKey = await getCustomLlmKey();
+      let content = "";
+      if (customKey) {
+        const provider = resolveWebhookLlmProvider(customKey);
+        content = await callWebhookLlm(customKey, provider, [
           { role: "system", content: "Разбей Telegram-пост на 1–6 атомарных карточек ЧГК. Верни JSON {cards:[{term,hook,full_text,category_names}]}. Категории только из переданного списка, 1–3 штуки. Один факт — одна карточка." },
           { role: "user", content: `Категории: ${JSON.stringify(names)}\nПост:\n${text.slice(0, 6000)}` },
-        ],
-        response_format: { type: "json_object" },
-      });
-      const raw = JSON.parse(res.choices[0]?.message?.content ?? '{"cards":[]}') as any;
+        ]);
+      } else {
+        const res = await generateChatCompletion({
+          model: "openai/gpt-6-astra",
+          messages: [
+            { role: "system", content: "Разбей Telegram-пост на 1–6 атомарных карточек ЧГК. Верни JSON {cards:[{term,hook,full_text,category_names}]}. Категории только из переданного списка, 1–3 штуки. Один факт — одна карточка." },
+            { role: "user", content: `Категории: ${JSON.stringify(names)}\nПост:\n${text.slice(0, 6000)}` },
+          ],
+          response_format: { type: "json_object" },
+        });
+        content = res.choices[0]?.message?.content ?? "";
+      }
+      const raw = JSON.parse(content || '{"cards":[]}') as any;
       cards = (Array.isArray(raw.cards) ? raw.cards : []).slice(0, 6).map((x: any) => ({
         term: String(x.term ?? "").trim(), hook: String(x.hook ?? "").trim(), full_text: String(x.full_text ?? text).trim(),
         category_names: Array.isArray(x.category_names) ? x.category_names.filter((n: string) => names.includes(n)).slice(0, 3) : [],
       })).filter((x: any) => x.term);
-    } catch (e) { console.error("Telegram webhook AI failed", e); }
+    } catch (e) {
+      console.error("Telegram webhook AI failed", e);
+      return Response.json({ ok: false, error: "Ошибка ИИ-разметки Telegram-поста" }, { status: 502 });
+    }
   }
   if (!cards.length) {
-    cards = [{ term: text.split(/\n/)[0]?.slice(0, 200)?.trim() || "Без термина", hook: text.trim(), full_text: text.trim(), category_names: [] }];
+    return Response.json({ ok: false, error: "ИИ не вернул ни одной карточки" }, { status: 502 });
   }
 
   const savedIds: string[] = [];
