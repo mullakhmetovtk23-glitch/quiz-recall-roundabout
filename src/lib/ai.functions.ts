@@ -38,21 +38,27 @@ export type BatchLabelResult =
   | { ok: true; items: Record<number, AtomicCardLabel[]> }
   | { ok: false; error: string; stop: boolean };
 
-export type OwnLlmProvider = "github" | "openrouter" | "gemini" | "mistral";
+export type OwnLlmProvider = "github" | "openrouter" | "gemini" | "groq" | "mistral";
 
 export function resolveOwnLlmProvider(apiKey: string): { provider: OwnLlmProvider; url: string; model: string } {
   const key = apiKey.trim();
-  if (key.startsWith("ghp_") || key.startsWith("github_pat_"))
-    return { provider: "github", url: "https://models.github.ai/inference/chat/completions", model: "gpt-4o-mini" };
-  if (key.startsWith("sk-or-"))
-    return { provider: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "openrouter/free" };
   if (key.startsWith("AIza"))
     return { provider: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", model: "gemini-2.5-flash" };
+  if (key.startsWith("ghp_") || key.startsWith("github_pat_"))
+    return { provider: "github", url: "https://models.inference.ai.azure.com/chat/completions", model: "gpt-4o-mini" };
+  if (key.startsWith("gsk_"))
+    return { provider: "groq", url: "https://api.groq.com/openai/v1/chat/completions", model: "llama-3.3-70b-versatile" };
+  if (key.startsWith("sk-or-"))
+    return { provider: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "openrouter/free" };
   return { provider: "mistral", url: "https://api.mistral.ai/v1/chat/completions", model: "mistral-small-latest" };
 }
 
 function providerName(provider: OwnLlmProvider): string {
-  return provider === "github" ? "GitHub Models" : provider === "openrouter" ? "OpenRouter" : provider === "gemini" ? "Google Gemini" : "Mistral AI";
+  return provider === "github" ? "GitHub Models"
+    : provider === "openrouter" ? "OpenRouter"
+    : provider === "gemini" ? "Google AI Studio"
+    : provider === "groq" ? "Groq"
+    : "Mistral AI";
 }
 
 async function performOwnLlmRequest(apiKey: string, messages: { role: string; content: string }[]) {

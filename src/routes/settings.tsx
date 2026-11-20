@@ -215,7 +215,9 @@ function TelegramWebhookSettings() {
   const [token, setToken] = useState("");
   const [status, setStatus] = useState("Не проверено");
   const [loading, setLoading] = useState(false);
-  const url = typeof window !== "undefined" ? `${window.location.origin}/api/telegram-webhook` : "/api/telegram-webhook";
+  const url = typeof window !== "undefined"
+    ? `${import.meta.env["VITE_SUPABASE_URL"]}/functions/v1/telegram-webhook`
+    : "/functions/v1/telegram-webhook";
 
   useEffect(() => {
     void supabase.from("app_settings").select("value").eq("key", "telegram_bot_token").maybeSingle()
@@ -245,19 +247,24 @@ function TelegramWebhookSettings() {
     setLoading(true);
     try {
       if (!(await saveToken())) return;
-      const res = await fetch("/api/telegram-webhook", {
+      const botToken = token.trim();
+      const setWebhook = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "checkTelegramWebhook", url }),
+        body: JSON.stringify({ url }),
       });
-      const info = await res.json() as any;
-      if (!res.ok || !info.ok) throw new Error(info.error ?? "Ошибка проверки вебхука");
-      if (info.connected) {
-        setStatus(info.last_error_message
-          ? `Подключено, последняя ошибка: ${info.last_error_message}`
-          : `Подключено · ожидание обновлений: ${info.pending_update_count ?? 0}`);
+      const setInfo = await setWebhook.json() as { ok?: boolean; description?: string };
+      if (!setWebhook.ok || !setInfo.ok) throw new Error(setInfo.description ?? `HTTP ${setWebhook.status}`);
+      const infoRes = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
+      const info = await infoRes.json() as { ok?: boolean; result?: { url?: string; pending_update_count?: number; last_error_message?: string } };
+      if (!infoRes.ok || !info.ok) throw new Error("Не удалось получить статус вебхука");
+      const result = info.result ?? {};
+      if (result.url === url) {
+        setStatus(result.last_error_message
+          ? `Подключено, последняя ошибка: ${result.last_error_message}`
+          : `Подключено · ожидание обновлений: ${result.pending_update_count ?? 0}`);
       } else {
-        setStatus(`Вебхук не совпадает с URL: ${info.url || "пусто"}`);
+        setStatus(`Вебхук не совпадает с URL: ${result.url || "пусто"}`);
       }
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Не удалось проверить вебхук");

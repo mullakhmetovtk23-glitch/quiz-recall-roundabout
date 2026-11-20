@@ -4,18 +4,21 @@ import { IMPROVE_SYSTEM_PROMPT, buildImproveUserPrompt, normalizeCategoryNames }
 import type { AppSettings } from "./settings";
 import type { AtomicCardLabel, BatchLabelResult } from "./ai.functions";
 
-export type LlmProvider = "github" | "openrouter" | "gemini" | "mistral";
+export type LlmProvider = "github" | "openrouter" | "gemini" | "groq" | "mistral";
 
 export function resolveLlmProvider(apiKey: string): { provider: LlmProvider; url: string; model: string } {
   const key = apiKey.trim();
+  if (key.startsWith("AIza")) {
+    return { provider: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", model: "gemini-2.5-flash" };
+  }
   if (key.startsWith("ghp_") || key.startsWith("github_pat_")) {
-    return { provider: "github", url: "https://models.github.ai/inference/chat/completions", model: "gpt-4o-mini" };
+    return { provider: "github", url: "https://models.inference.ai.azure.com/chat/completions", model: "gpt-4o-mini" };
+  }
+  if (key.startsWith("gsk_")) {
+    return { provider: "groq", url: "https://api.groq.com/openai/v1/chat/completions", model: "llama-3.3-70b-versatile" };
   }
   if (key.startsWith("sk-or-")) {
     return { provider: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", model: "openrouter/free" };
-  }
-  if (key.startsWith("AIza")) {
-    return { provider: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", model: "gemini-2.5-flash" };
   }
   return { provider: "mistral", url: "https://api.mistral.ai/v1/chat/completions", model: "mistral-small-latest" };
 }
@@ -36,20 +39,21 @@ export async function checkApiKey(apiKey: string): Promise<{ ok: true; provider:
     const key = apiKey.trim();
     if (!key) return { ok: false, error: "Ключ не введён" };
     const provider = resolveLlmProvider(key);
-    const providerName = provider.provider === "github" ? "GitHub Models" : provider.provider === "openrouter" ? "OpenRouter" : provider.provider === "gemini" ? "Google Gemini" : "Mistral AI";
+    const providerName = provider.provider === "github" ? "GitHub Models"
+      : provider.provider === "openrouter" ? "OpenRouter"
+      : provider.provider === "gemini" ? "Google AI Studio"
+      : provider.provider === "groq" ? "Groq"
+      : "Mistral AI";
 
     if (provider.provider === "gemini") {
       const res = await fetch(`${provider.url}?key=${encodeURIComponent(key)}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: "Reply with OK" }] }],
-          generationConfig: { maxOutputTokens: 16 },
-        }),
+        body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Reply with OK" }] }], generationConfig: { maxOutputTokens: 16 } }),
       });
-      if (!res.ok) throw await readError(res);
-      const json = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-      const text = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
-      return text ? { ok: true, provider: providerName } : { ok: false, error: "Ответ провайдера не содержит текста" };
+      const text = await res.text();
+      if (!res.ok) throw new LlmHttpError(res.status, text);
+      if (!text.trim()) throw new Error("Ответ провайдера не содержит текста");
+      return { ok: true, provider: providerName };
     }
 
     const urls = provider.provider === "github"
@@ -62,13 +66,12 @@ export async function checkApiKey(apiKey: string): Promise<{ ok: true; provider:
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify({ model: provider.model, messages: [{ role: "user", content: "Reply with OK" }], max_tokens: 16 }),
       });
-      if (res.ok) {
-        const json = await res.json() as { choices?: { message?: { content?: string } }[] };
-        const text = json.choices?.[0]?.message?.content?.trim() ?? "";
-        return text ? { ok: true, provider: providerName } : { ok: false, error: "Ответ провайдера не содержит текста" };
-      }
-      if (provider.provider === "github" && url === urls[0] && (res.status === 404 || res.status === 401)) continue;
-      throw await readError(res);
+      const text = await res.text();
+      if (res.ok) return text.trim()
+        ? { ok: true, provider: providerName }
+        : { ok: false, error: "Ответ провайдера не содержит текста" };
+      if (provider.provider === "github" && url === urls[0] && res.status === 404) continue;
+      throw new LlmHttpError(res.status, text);
     }
     throw new Error("GitHub Models не ответил доступным endpoint");
   } catch (e) {
