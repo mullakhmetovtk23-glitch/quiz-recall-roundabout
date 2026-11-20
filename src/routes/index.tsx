@@ -1,7 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeftRight, ArrowRight, CalendarCheck, Check, Infinity as InfinityIcon, Loader2, Pencil, Shuffle, Undo2, X } from "lucide-react";
+import { ArrowLeftRight, ArrowRight, CalendarCheck, Check, Infinity as InfinityIcon, Loader2, Pencil, Shuffle, Sparkles, Undo2, X } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
+import { useServerFn } from "@tanstack/react-start";
+import { improveCard } from "@/lib/ai.functions";
+import { improveCardWithOwnKey } from "@/lib/labeler";
+import { useSettings } from "@/lib/settings";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -231,9 +237,44 @@ function Player({ initial, channels, onExit }: { initial: SessionItem[]; channel
   const [flipped, setFlipped] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [counts, setCounts] = useState<Counts>(EMPTY_COUNTS);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiComment, setAiComment] = useState("");
+  const [aiPreview, setAiPreview] = useState<null | { term: string; hook: string; full_text: string; category_names: string[] }>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const improveFn = useServerFn(improveCard);
+  const { settings } = useSettings();
   const requeueSeq = useRef(0);
   const channelMap = useMemo(() => new Map(channels.map((c) => [c.id, c])), [channels]);
   const item = queue[index];
+
+  async function improveWithAi() {
+    if (!item) return;
+    setAiLoading(true);
+    try {
+      const categoryNames = channels.map((c) => c.name);
+      const result = settings.llmApiKey
+        ? await improveCardWithOwnKey(item.card.term, item.card.hook, item.card.full_text, categoryNames, aiComment, settings)
+        : await improveFn({ data: { term: item.card.term, hook: item.card.hook, full_text: item.card.full_text, categories: categoryNames, comment: aiComment } });
+      if (!result.ok) throw new Error(result.error);
+      setAiPreview(result.card);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось улучшить карточку");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  async function applyAiImprovement() {
+    if (!item || !aiPreview) return;
+    const channelIds = channels.filter((c) => aiPreview.category_names.includes(c.name)).map((c) => c.id).slice(0, 3);
+    const patch = { term: aiPreview.term, hook: aiPreview.hook, full_text: aiPreview.full_text, channel_ids: channelIds };
+    const { data, error } = await supabase.from("cards").update(patch).eq("id", item.card.id).select(CARD_COLUMNS).single();
+    if (error) { toast.error("Не удалось применить улучшение"); return; }
+    setQueue((prev) => prev.map((it) => (it.card.id === item.card.id ? { ...it, card: data } : it)));
+    setAiPreview(null);
+    setAiOpen(false);
+    toast.success("Улучшение применено — прогресс сохранён");
+  }
 
   useEffect(() => {
     if (index >= queue.length) onExit(counts);
@@ -282,11 +323,14 @@ function Player({ initial, channels, onExit }: { initial: SessionItem[]; channel
       } else if (e.code === "KeyE") {
         e.preventDefault();
         setEditOpen(true);
+      } else if (e.code === "KeyI" && flipped) {
+        e.preventDefault();
+        setAiOpen(true);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [grade, editOpen]);
+  }, [grade, editOpen, flipped]);
 
   if (!item) return null;
   const card = item.card;
@@ -307,6 +351,31 @@ function Player({ initial, channels, onExit }: { initial: SessionItem[]; channel
         <Button variant="ghost" size="icon" onClick={() => setEditOpen(true)} aria-label="Редактировать (E)" title="Редактировать (E)">
           <Pencil />
         </Button>
+        {flipped && (
+          <Popover open={aiOpen} onOpenChange={setAiOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Доработать ИИ (I)" title="Доработать ИИ (I)"><Sparkles /></Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-[min(22rem,calc(100vw-2rem))] space-y-3">
+              <p className="font-semibold">Доработать карточку ИИ</p>
+              <Textarea value={aiComment} onChange={(e) => setAiComment(e.target.value)} rows={3} placeholder="Необязательное пожелание" />
+              <Button size="sm" className="w-full" disabled={aiLoading} onClick={() => void improveWithAi()}>
+                {aiLoading ? <Loader2 className="animate-spin" /> : <Sparkles />} Улучшить
+              </Button>
+              {aiPreview && (
+                <div className="max-h-64 space-y-2 overflow-y-auto border-t pt-3 text-sm">
+                  <p><b>Было:</b><br />{card.term}<br /><span className="text-muted-foreground">{card.hook}</span></p>
+                  <p><b>Стало:</b><br />{aiPreview.term}<br /><span className="text-muted-foreground">{aiPreview.hook}</span></p>
+                  {aiPreview.full_text && <p className="whitespace-pre-wrap">{aiPreview.full_text}</p>}
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => void applyAiImprovement()}>Применить</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setAiPreview(null)}>Отмена</Button>
+                  </div>
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+        )}
       </div>
 
       <div

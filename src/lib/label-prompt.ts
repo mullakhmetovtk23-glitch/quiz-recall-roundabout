@@ -81,6 +81,19 @@ export function normalizeBatch(raw: unknown, ids: number[], categories: string[]
 }
 
 /** Import without AI: first line → term, the rest → hook. */
+export interface ImprovedCard {
+  term: string;
+  hook: string;
+  full_text: string;
+  category_names: string[];
+}
+
+export function buildImproveUserPrompt(term: string, hook: string, fullText: string, categories: string[], comment: string): string {
+  return `${categoriesLine(categories)}\n\nТекущая карточка:\nterm: ${term}\nhook: ${hook}\nfull_text: ${fullText}\n\nПожелание пользователя: ${comment || "улучши карточку"}\nВерни JSON с полями term, hook, full_text, category_names.`;
+}
+
+export const IMPROVE_SYSTEM_PROMPT = `Ты редактор карточек для подготовки к ЧГК и «Своей игре». Улучшай точность и запоминаемость. term — точный короткий ответ; hook — 2–3 ярких признака без прямой подсказки и однокоренных слов; full_text — структурированные ключевые факты, даты, имена и ассоциации; category_names — от 1 до 3 названий строго из списка категорий. Ответ только JSON.`;
+
 export function basicLabel(text: string): { term: string; hook: string } {
   const lines = text.trim().split(/\r?\n/);
   const first = (lines.shift() ?? "").trim();

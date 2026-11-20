@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { OptionCard, SectionTitle } from "@/components/OptionCard";
 import { supabase } from "@/integrations/supabase/client";
 import { labelPost, type LabelResult } from "@/lib/ai.functions";
+import { basicLabel } from "@/lib/label-prompt";
 import { channelsQuery, fetchAllPages } from "@/lib/db";
 import { labelWithOwnKey } from "@/lib/labeler";
 import { useSettings } from "@/lib/settings";
@@ -36,7 +37,7 @@ export const Route = createFileRoute("/import")({
 
 type RunStatus = "idle" | "running" | "paused" | "done" | "cancelled";
 type Outcome = "added" | "skipped" | "failed" | "retry";
-const WORKERS = 3;
+const BATCH_SIZE = 15;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function ImportPage() {
@@ -112,12 +113,15 @@ function ImportPage() {
     if (post.text) {
       const categories = destination === "ai" ? channels.map((c) => c.name) : [];
       let res: LabelResult;
-      try {
-        res = settings.llmApiKey
-          ? await labelWithOwnKey(post.text, categories, settings)
-          : await labelFn({ data: { text: post.text.slice(0, 12000), categories } });
-      } catch {
-        res = { ok: false, stop: false, error: "Сервер ИИ недоступен" };
+      if (!settings.llmApiKey) {
+        const base = basicLabel(post.text);
+        res = { ok: true, label: { ...base, category_names: [] } };
+      } else {
+        try {
+          res = await labelWithOwnKey(post.text, categories, settings);
+        } catch {
+          res = { ok: false, stop: false, error: "Сервер ИИ недоступен" };
+        }
       }
       if (!res.ok) {
         if (res.stop) {
@@ -195,21 +199,20 @@ function ImportPage() {
     }
     const byName = new Map(channels.map((c) => [c.name.toLowerCase(), c.id]));
 
-    let cursor = 0;
-    const retry: number[] = [];
-    const next = () => (retry.length ? retry.shift()! : cursor < posts.length ? cursor++ : -1);
-
-    const worker = async () => {
-      for (;;) {
-        if (cancelRef.current) return;
+    const batchCount = Math.ceil(posts.length / BATCH_SIZE);
+    for (let batch = 0; batch < batchCount && !cancelRef.current; batch++) {
+      while (pauseRef.current && !cancelRef.current) await sleep(250);
+      if (cancelRef.current) break;
+      setNotice(`Батч ${batch + 1} из ${batchCount}`);
+      const slice = posts.slice(batch * BATCH_SIZE, (batch + 1) * BATCH_SIZE);
+      for (const post of slice) {
+        if (cancelRef.current) break;
         while (pauseRef.current && !cancelRef.current) await sleep(250);
-        if (cancelRef.current) return;
-        const i = next();
-        if (i < 0) return;
-        const outcome = await processPost(posts[i]!, parsed.chatId, existing, byName);
+        let outcome = await processPost(post, parsed.chatId, existing, byName);
         if (outcome === "retry") {
-          retry.push(i);
-          continue;
+          setNotice("429 или лимит ИИ: пауза 15 секунд");
+          await sleep(15000);
+          outcome = await processPost(post, parsed.chatId, existing, byName);
         }
         setProgress((p) => ({
           ...p,
@@ -219,9 +222,7 @@ function ImportPage() {
           failed: p.failed + (outcome === "failed" ? 1 : 0),
         }));
       }
-    };
-
-    await Promise.all(Array.from({ length: WORKERS }, worker));
+    }
     setStatus(cancelRef.current ? "cancelled" : "done");
     void qc.invalidateQueries({ queryKey: ["cards"] });
     void qc.invalidateQueries({ queryKey: ["stats"] });

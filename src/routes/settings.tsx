@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { KeyRound, Monitor, Moon, Plus, Sun, Trash2 } from "lucide-react";
+import { KeyRound, Monitor, Moon, Plus, Sun, Trash2, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,6 +90,7 @@ function SettingsPage() {
 
       <ChannelsManager channels={channels} />
       <AiSettings />
+      <TelegramWebhookSettings />
       <ThemeSettings />
     </div>
   );
@@ -119,7 +120,7 @@ function ChannelsManager({ channels }: { channels: Channel[] }) {
     refresh();
   }
 
-  async function patch(id: string, values: Partial<Pick<Channel, "name" | "color">>) {
+  async function patch(id: string, values: Partial<Pick<Channel, "name" | "color" | "tg_chat_id" | "description" | "icon" | "ai_prompt" | "auto_edit_tg" | "tg_post_template" | "sort_order">>) {
     const { error } = await supabase.from("channels").update(values).eq("id", id);
     if (error) toast.error(error.code === "23505" ? "Такой канал уже есть" : "Не удалось сохранить");
     refresh();
@@ -206,6 +207,43 @@ function ChannelRow({ channel, onPatch, onDelete }: { channel: Channel; onPatch:
         <Trash2 />
       </Button>
     </li>
+  );
+}
+
+function TelegramWebhookSettings() {
+  const [status, setStatus] = useState("Не проверено");
+  const [loading, setLoading] = useState(false);
+  const projectUrl = (import.meta as any).env?.VITE_SUPABASE_URL ?? "";
+  const url = projectUrl ? `${projectUrl}/functions/v1/telegram-webhook` : "https://<project-ref>.supabase.co/functions/v1/telegram-webhook";
+
+  async function connect() {
+    setLoading(true);
+    try {
+      const token = prompt("Введите TELEGRAM_BOT_TOKEN бота:");
+      if (!token) return;
+      const set = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }),
+      });
+      if (!set.ok) throw new Error(`setWebhook: ${set.status}`);
+      const info = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`).then((r) => r.json()) as any;
+      setStatus(info.ok ? (info.result?.url === url ? `Подключено · обновлено ${info.result?.last_error_date ? "с ошибкой" : "успешно"}` : "Вебхук Telegram не совпадает") : "Ошибка получения состояния");
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Не удалось проверить вебхук");
+    } finally { setLoading(false); }
+  }
+
+  return (
+    <section>
+      <SectionTitle>Синхронизация с Telegram-ботом</SectionTitle>
+      <div className="index-card space-y-3 p-5">
+        <p className="text-xs text-muted-foreground">URL Edge Function</p>
+        <code className="block break-all rounded-xl bg-secondary p-3 text-xs">{url}</code>
+        <p className="text-sm">Статус: <b>{status}</b></p>
+        <Button className="h-11 rounded-xl" disabled={loading} onClick={() => void connect()}>
+          <Wifi /> Подключить / Проверить вебхук
+        </Button>
+      </div>
+    </section>
   );
 }
 

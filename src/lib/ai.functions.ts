@@ -6,7 +6,16 @@ import {
   RateLimitError,
   generateChatCompletion,
 } from "@lovable.dev/ai-gateway";
-import { SINGLE_LABEL_SYSTEM_PROMPT, buildLabelUserPrompt, normalizeLabel, type PostLabel } from "./label-prompt";
+import {
+  SINGLE_LABEL_SYSTEM_PROMPT,
+  buildLabelUserPrompt,
+  normalizeLabel,
+  IMPROVE_SYSTEM_PROMPT,
+  buildImproveUserPrompt,
+  normalizeCategoryNames,
+  type PostLabel,
+  type ImprovedCard,
+} from "./label-prompt";
 
 const inputSchema = z.object({
   text: z.string().min(1).max(12000),
@@ -61,5 +70,37 @@ export const labelPost = createServerFn({ method: "POST" })
         return { ok: false, stop: true, error: "Слишком много запросов к ИИ. Подождите минуту и продолжите." };
       if (e instanceof GatewayError) return { ok: false, stop: false, error: "ИИ не смог обработать пост" };
       return { ok: false, stop: false, error: "Не удалось разобрать ответ ИИ" };
+    }
+  });
+
+const improveSchema = z.object({
+  term: z.string(), hook: z.string(), full_text: z.string(),
+  categories: z.array(z.string().max(120)).max(60), comment: z.string().optional(),
+});
+export type ImproveResult = { ok: true; card: ImprovedCard } | { ok: false; error: string };
+
+export const improveCard = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => improveSchema.parse(d))
+  .handler(async ({ data }): Promise<ImproveResult> => {
+    try {
+      const res = await generateChatCompletion({
+        model: "google/gemini-2.5-flash-lite",
+        messages: [
+          { role: "system", content: IMPROVE_SYSTEM_PROMPT },
+          { role: "user", content: buildImproveUserPrompt(data.term, data.hook, data.full_text, data.categories, data.comment ?? "") },
+        ],
+        response_format: { type: "json_object" },
+      });
+      const text = res.choices[0]?.message?.content;
+      const raw = JSON.parse(typeof text === "string" ? text : "{}") as Record<string, unknown>;
+      return { ok: true, card: {
+        term: typeof raw.term === "string" ? raw.term.trim() : data.term,
+        hook: typeof raw.hook === "string" ? raw.hook.trim() : data.hook,
+        full_text: typeof raw.full_text === "string" ? raw.full_text.trim() : data.full_text,
+        category_names: normalizeCategoryNames(raw.category_names, data.categories),
+      }};
+    } catch (e) {
+      console.error("improveCard failed", e);
+      return { ok: false, error: "Не удалось улучшить карточку через ИИ" };
     }
   });
