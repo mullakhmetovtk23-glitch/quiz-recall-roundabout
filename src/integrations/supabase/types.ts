@@ -17,6 +17,7 @@ export type Database = {
       cards: {
         Row: {
           channel_id: string | null
+          channel_ids: string[]
           created_at: string
           full_text: string
           fwd_box: number
@@ -32,10 +33,12 @@ export type Database = {
           source_chat_id: string | null
           term: string
           tg_message_id: number | null
+          tg_rendered_text: string | null
           updated_at: string
         }
         Insert: {
           channel_id?: string | null
+          channel_ids?: string[]
           created_at?: string
           full_text?: string
           fwd_box?: number
@@ -51,10 +54,12 @@ export type Database = {
           source_chat_id?: string | null
           term?: string
           tg_message_id?: number | null
+          tg_rendered_text?: string | null
           updated_at?: string
         }
         Update: {
           channel_id?: string | null
+          channel_ids?: string[]
           created_at?: string
           full_text?: string
           fwd_box?: number
@@ -70,6 +75,7 @@ export type Database = {
           source_chat_id?: string | null
           term?: string
           tg_message_id?: number | null
+          tg_rendered_text?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -84,25 +90,43 @@ export type Database = {
       }
       channels: {
         Row: {
+          ai_prompt: string | null
+          auto_edit_tg: boolean
           color: string
           created_at: string
+          description: string | null
+          icon: string | null
           id: string
           name: string
           sort_order: number
+          tg_chat_id: string | null
+          tg_post_template: string | null
         }
         Insert: {
+          ai_prompt?: string | null
+          auto_edit_tg?: boolean
           color?: string
           created_at?: string
+          description?: string | null
+          icon?: string | null
           id?: string
           name: string
           sort_order?: number
+          tg_chat_id?: string | null
+          tg_post_template?: string | null
         }
         Update: {
+          ai_prompt?: string | null
+          auto_edit_tg?: boolean
           color?: string
           created_at?: string
+          description?: string | null
+          icon?: string | null
           id?: string
           name?: string
           sort_order?: number
+          tg_chat_id?: string | null
+          tg_post_template?: string | null
         }
         Relationships: []
       }
@@ -111,6 +135,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      card_totals: {
+        Args: never
+        Returns: {
+          due_forward: number
+          due_reverse: number
+          total: number
+        }[]
+      }
       channel_stats: {
         Args: never
         Returns: {
@@ -119,6 +151,10 @@ export type Database = {
           due_reverse: number
           total: number
         }[]
+      }
+      merge_channels: {
+        Args: { _source: string; _target: string }
+        Returns: undefined
       }
     }
     Enums: {

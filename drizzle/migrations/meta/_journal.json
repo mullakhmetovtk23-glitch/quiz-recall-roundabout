@@ -15,6 +15,13 @@
       "when": 1795193113870,
       "tag": "0001_card_images_policies",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795195423127,
+      "tag": "0002_multi_tags_channel_settings",
+      "breakpoints": true
     }
   ]
 }

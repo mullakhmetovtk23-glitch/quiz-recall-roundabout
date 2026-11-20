@@ -78,3 +78,23 @@ export function buildPhotoMap(files: File[]): { resultFile: File | null; photos:
   }
   return { resultFile: result?.f ?? null, photos };
 }
+
+/** Export ids lack the "-100" prefix the Bot API uses: "1234567890" ≡ "-1001234567890". */
+export function normalizeTgChatId(id: string | number | null | undefined): string {
+  return String(id ?? "").trim().replace(/^-100(?=\d{6,})/, "").replace(/^-/, "");
+}
+
+export function sameTgChat(a: string | number | null | undefined, b: string | number | null | undefined): boolean {
+  const x = normalizeTgChatId(a);
+  return x !== "" && x === normalizeTgChatId(b);
+}
+
+export const WEBHOOK_PATH = "/api/public/telegram-webhook";
+
+/** The auth-protected editor preview host can't receive webhooks; its public twin can. */
+export function publicWebhookUrl(origin: string): string {
+  const url = new URL(origin);
+  const m = url.hostname.match(/^id-preview--([^.]+)\.(.+)$/);
+  const host = m ? `project--${m[1]}-dev.${m[2]}` : url.host;
+  return `https://${host}${WEBHOOK_PATH}`;
+}
