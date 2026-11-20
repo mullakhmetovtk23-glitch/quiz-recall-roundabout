@@ -104,10 +104,10 @@ export async function improveCardWithOwnKey(
     const json = await res.json() as { choices?: { message?: { content?: string } }[] };
     const raw = JSON.parse(json.choices?.[0]?.message?.content ?? "{}") as Record<string, unknown>;
     return { ok: true, card: {
-      term: typeof raw.term === "string" ? raw.term.trim() : term,
-      hook: typeof raw.hook === "string" ? raw.hook.trim() : hook,
-      full_text: typeof raw.full_text === "string" ? raw.full_text.trim() : fullText,
-      category_names: normalizeCategoryNames(raw.category_names, categories),
+      term: typeof raw["term"] === "string" ? raw["term"].trim() : term,
+      hook: typeof raw["hook"] === "string" ? raw["hook"].trim() : hook,
+      full_text: typeof raw["full_text"] === "string" ? raw["full_text"].trim() : fullText,
+      category_names: normalizeCategoryNames(raw["category_names"], categories),
     }};
   } catch {
     return { ok: false, error: "Не удалось связаться с API ИИ" };

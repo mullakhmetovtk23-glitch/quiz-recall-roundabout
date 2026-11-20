@@ -1,0 +1,46 @@
+﻿src/lib/ai.functions.ts(156,26): error TS4111: Property 'term' comes from an index signature, so it must be accessed with ['term'].
+src/lib/ai.functions.ts(156,50): error TS4111: Property 'term' comes from an index signature, so it must be accessed with ['term'].
+src/lib/ai.functions.ts(157,26): error TS4111: Property 'hook' comes from an index signature, so it must be accessed with ['hook'].
+src/lib/ai.functions.ts(157,50): error TS4111: Property 'hook' comes from an index signature, so it must be accessed with ['hook'].
+src/lib/ai.functions.ts(158,31): error TS4111: Property 'full_text' comes from an index signature, so it must be accessed with ['full_text'].
+src/lib/ai.functions.ts(158,60): error TS4111: Property 'full_text' comes from an index signature, so it must be accessed with ['full_text'].
+src/lib/ai.functions.ts(159,52): error TS4111: Property 'category_names' comes from an index signature, so it must be accessed with ['category_names'].
+src/lib/labeler.ts(107,24): error TS4111: Property 'term' comes from an index signature, so it must be accessed with ['term'].
+src/lib/labeler.ts(107,48): error TS4111: Property 'term' comes from an index signature, so it must be accessed with ['term'].
+src/lib/labeler.ts(108,24): error TS4111: Property 'hook' comes from an index signature, so it must be accessed with ['hook'].
+src/lib/labeler.ts(108,48): error TS4111: Property 'hook' comes from an index signature, so it must be accessed with ['hook'].
+src/lib/labeler.ts(109,29): error TS4111: Property 'full_text' comes from an index signature, so it must be accessed with ['full_text'].
+src/lib/labeler.ts(109,58): error TS4111: Property 'full_text' comes from an index signature, so it must be accessed with ['full_text'].
+src/lib/labeler.ts(110,50): error TS4111: Property 'category_names' comes from an index signature, so it must be accessed with ['category_names'].
+src/lib/telegram-webhook.server.ts(8,19): error TS4111: Property 'TELEGRAM_BOT_TOKEN' comes from an index signature, so it must be accessed with ['TELEGRAM_BOT_TOKEN'].
+src/lib/telegram-webhook.server.ts(8,66): error TS4111: Property 'TELEGRAM_BOT_TOKEN' comes from an index signature, so it must be accessed with ['TELEGRAM_BOT_TOKEN'].
+src/lib/telegram-webhook.server.ts(37,34): error TS4111: Property 'LOVABLE_API_KEY' comes from an index signature, so it must be accessed with ['LOVABLE_API_KEY'].
+src/lib/telegram-webhook.server.ts(61,24): error TS18048: 'card' is possibly 'undefined'.
+src/lib/telegram-webhook.server.ts(62,45): error TS18048: 'card' is possibly 'undefined'.
+src/lib/telegram-webhook.server.ts(66,67): error TS18048: 'card' is possibly 'undefined'.
+src/lib/telegram-webhook.server.ts(66,84): error TS18048: 'card' is possibly 'undefined'.
+src/lib/telegram-webhook.server.ts(67,18): error TS18048: 'card' is possibly 'undefined'.
+src/lib/telegram-webhook.server.ts(74,30): error TS2532: Object is possibly 'undefined'.
+src/lib/telegram-webhook.server.ts(74,56): error TS2532: Object is possibly 'undefined'.
+src/routes/import.tsx(160,13): error TS18048: 'card' is possibly 'undefined'.
+src/routes/import.tsx(165,17): error TS18048: 'card' is possibly 'undefined'.
+src/routes/import.tsx(166,17): error TS18048: 'card' is possibly 'undefined'.
+src/routes/import.tsx(167,22): error TS18048: 'card' is possibly 'undefined'.
+src/routes/import.tsx(512,12): error TS2304: Cannot find name 'Trash2'.
+src/routes/library.tsx(75,61): error TS2345: Argument of type 'string' is not assignable to parameter of type 'string[]'.
+src/routes/settings.tsx(220,24): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(relation: "channels" | "cards", options?: PostgrestQueryBuilderOptions | undefined): PostgrestQueryBuilder<{ PostgrestVersion: "14.18"; }, { Tables: { cards: { Row: { ...; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; channels: { ...; }; }; Views: {}; Functions: { ...; }; Enums: {}; CompositeTypes: {}; }, { ...; } | { ...; }, "channels" | "cards", [] | [...]>', gave the following error.
+    Argument of type '"app_settings"' is not assignable to parameter of type '"channels" | "cards"'.
+  Overload 2 of 2, '(relation: never, options?: PostgrestQueryBuilderOptions | undefined): PostgrestQueryBuilder<{ PostgrestVersion: "14.18"; }, { Tables: { cards: { Row: { channel_id: string | null; ... 17 more ...; updated_at: string; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; channels: { ...; }; }; Views: {}; Functions: { ...; }; Enums: {}; CompositeTypes: {}; }, never, never, never>', gave the following error.
+    Argument of type '"app_settings"' is not assignable to parameter of type 'never'.
+src/routes/settings.tsx(220,59): error TS2345: Argument of type '"key"' is not assignable to parameter of type '"id" | "created_at"'.
+src/routes/settings.tsx(221,42): error TS2551: Property 'value' does not exist on type 'SelectQueryError<"column 'value' does not exist on 'channels'."> | SelectQueryError<"column 'value' does not exist on 'cards'.">'. Did you mean 'valueOf'?
+  Property 'value' does not exist on type 'SelectQueryError<"column 'value' does not exist on 'channels'.">'.
+src/routes/settings.tsx(230,43): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(relation: "channels" | "cards", options?: PostgrestQueryBuilderOptions | undefined): PostgrestQueryBuilder<{ PostgrestVersion: "14.18"; }, { Tables: { cards: { Row: { ...; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; channels: { ...; }; }; Views: {}; Functions: { ...; }; Enums: {}; CompositeTypes: {}; }, { ...; } | { ...; }, "channels" | "cards", [] | [...]>', gave the following error.
+    Argument of type '"app_settings"' is not assignable to parameter of type '"channels" | "cards"'.
+  Overload 2 of 2, '(relation: never, options?: PostgrestQueryBuilderOptions | undefined): PostgrestQueryBuilder<{ PostgrestVersion: "14.18"; }, { Tables: { cards: { Row: { channel_id: string | null; ... 17 more ...; updated_at: string; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; channels: { ...; }; }; Views: {}; Functions: { ...; }; Enums: {}; CompositeTypes: {}; }, never, never, never>', gave the following error.
+    Argument of type '"app_settings"' is not assignable to parameter of type 'never'.
+src/routes/settings.tsx(231,7): error TS2322: Type 'string' is not assignable to type 'never'.
+src/routes/settings.tsx(232,7): error TS2322: Type 'string' is not assignable to type 'never'.
+src/routes/settings.tsx(233,7): error TS2322: Type 'string' is not assignable to type 'never'.

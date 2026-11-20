@@ -5,7 +5,8 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 const cut = (s: string, n: number) => Array.from(s).slice(0, n).join("");
 
 async function getBotToken(): Promise<string | null> {
-  if (process.env.TELEGRAM_BOT_TOKEN?.trim()) return process.env.TELEGRAM_BOT_TOKEN.trim();
+  const envToken = process.env["TELEGRAM_BOT_TOKEN"]?.trim();
+  if (envToken) return envToken;
   const { data } = await (supabaseAdmin as any).from("app_settings").select("value").eq("key", "telegram_bot_token").maybeSingle();
   return typeof data?.value === "string" && data.value.trim() ? data.value.trim() : null;
 }
@@ -34,7 +35,7 @@ export async function handleTelegramWebhook(request: Request): Promise<Response>
   const names = (channels ?? []).map((c: any) => c.name as string);
   let cards: Array<{ term: string; hook: string; full_text: string; category_names: string[] }> = [];
 
-  if (text.trim() && process.env.LOVABLE_API_KEY) {
+  if (text.trim() && process.env["LOVABLE_API_KEY"]) {
     try {
       const res = await generateChatCompletion({
         model: "openai/gpt-6-astra",
@@ -57,7 +58,7 @@ export async function handleTelegramWebhook(request: Request): Promise<Response>
 
   const savedIds: string[] = [];
   for (let i = 0; i < cards.length; i++) {
-    const card = cards[i];
+    const card = cards[i]!;
     const channelIds = card.category_names.length
       ? (channels ?? []).filter((c: any) => card.category_names.some((n) => n.toLowerCase() === c.name.toLowerCase())).map((c: any) => c.id)
       : [channel.id];
@@ -71,7 +72,8 @@ export async function handleTelegramWebhook(request: Request): Promise<Response>
   }
 
   if (channel.auto_edit_tg) {
-    const vars = { term: esc(cards[0].term), hook: esc(cards[0].hook), full_text: esc(cards.map((c) => c.full_text).join("\n\n")), categories: esc(cards.flatMap((c) => c.category_names).join(", ")) };
+    const firstCard = cards[0]!;
+    const vars = { term: esc(firstCard.term), hook: esc(firstCard.hook), full_text: esc(cards.map((c) => c.full_text).join("\n\n")), categories: esc(cards.flatMap((c) => c.category_names).join(", ")) };
     let out = (channel.tg_post_template || "<b>{{term}}</b>").replace(/\{\{\s*(\w+)\s*\}\}/g, (_: string, k: string) => vars[k as keyof typeof vars] ?? "");
     out = cut(out, post.photo ? 1000 : 4000);
     const method = post.photo ? "editMessageCaption" : "editMessageText";

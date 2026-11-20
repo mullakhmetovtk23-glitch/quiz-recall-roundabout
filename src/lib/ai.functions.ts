@@ -153,10 +153,10 @@ export const improveCard = createServerFn({ method: "POST" })
       const text = res.choices[0]?.message?.content;
       const raw = JSON.parse(typeof text === "string" ? text : "{}") as Record<string, unknown>;
       return { ok: true, card: {
-        term: typeof raw.term === "string" ? raw.term.trim() : data.term,
-        hook: typeof raw.hook === "string" ? raw.hook.trim() : data.hook,
-        full_text: typeof raw.full_text === "string" ? raw.full_text.trim() : data.full_text,
-        category_names: normalizeCategoryNames(raw.category_names, data.categories),
+        term: typeof raw["term"] === "string" ? raw["term"].trim() : data.term,
+        hook: typeof raw["hook"] === "string" ? raw["hook"].trim() : data.hook,
+        full_text: typeof raw["full_text"] === "string" ? raw["full_text"].trim() : data.full_text,
+        category_names: normalizeCategoryNames(raw["category_names"], data.categories),
       }};
     } catch (e) {
       console.error("improveCard failed", e);

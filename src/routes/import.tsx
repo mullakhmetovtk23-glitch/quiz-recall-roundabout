@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileJson, FolderOpen, Image as ImageIcon, Pause, Play, Sparkles, Square, Tag } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileJson, FolderOpen, Image as ImageIcon, Pause, Play, Sparkles, Square, Tag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -154,7 +154,7 @@ function ImportPage() {
       }
 
       for (let i = 0; i < cards.length; i++) {
-        const card = cards[i];
+        const card = cards[i]!;
         const channelIds = destination === "channel" && targetChannel
           ? [targetChannel]
           : card.category_names.map((n) => byName.get(n.toLowerCase())).filter((id): id is string => !!id);
@@ -251,33 +251,42 @@ function ImportPage() {
   const pct = progress.total ? (progress.processed / progress.total) * 100 : 0;
 
   async function countRawImportCards() {
-    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-    const { count, error } = await supabase
-      .from("cards")
-      .select("id", { count: "exact", head: true })
-      .not("tg_message_id", "is", null)
-      .or(`full_text.is.null,full_text.eq.,channel_ids.cs.{},created_at.gte.${cutoff}`);
-    if (error) {
+    const rows = await fetchAllPages<{ id: string; full_text: string | null; channel_ids: string[] | null }>((from, to) =>
+      supabase.from("cards").select("id,full_text,channel_ids").not("tg_message_id", "is", null).range(from, to),
+    ).catch(() => null);
+    if (!rows) {
       toast.error("Не удалось определить карточки неудачного импорта");
       return;
     }
-    setCleanupCount(count ?? 0);
+    const ids = rows.filter((row) =>
+      !row.full_text?.trim() || !(row.channel_ids ?? []).length,
+    );
+    setCleanupCount(ids.length);
     setCleanupOpen(true);
   }
 
   async function deleteRawImportCards() {
-    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-    const { data, error } = await supabase
-      .from("cards")
-      .delete()
-      .not("tg_message_id", "is", null)
-      .or(`full_text.is.null,full_text.eq.,channel_ids.cs.{},created_at.gte.${cutoff}`)
-      .select("id");
-    if (error) {
+    const rows = await fetchAllPages<{ id: string; full_text: string | null; channel_ids: string[] | null }>((from, to) =>
+      supabase.from("cards").select("id,full_text,channel_ids").not("tg_message_id", "is", null).range(from, to),
+    ).catch(() => null);
+    if (!rows) {
       toast.error("Не удалось удалить неудачные карточки импорта");
       return;
     }
-    const removed = data?.length ?? 0;
+    const ids = rows.filter((row) =>
+      !row.full_text?.trim() || !(row.channel_ids ?? []).length,
+    ).map((row) => row.id);
+
+    let removed = 0;
+    for (let i = 0; i < ids.length; i += 200) {
+      const slice = ids.slice(i, i + 200);
+      const { data, error } = await supabase.from("cards").delete().in("id", slice).select("id");
+      if (error) {
+        toast.error("Не удалось удалить неудачные карточки импорта");
+        return;
+      }
+      removed += data?.length ?? 0;
+    }
     setCleanupOpen(false);
     setCleanupCount(0);
     void qc.invalidateQueries({ queryKey: ["cards"] });
@@ -430,7 +439,7 @@ function ImportPage() {
             </div>
             <Progress value={pct} className="h-2.5" />
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-              <span className="text-grade-easy">Добавлено: {progress.added}</span>
+              <span>Обработано постов: {progress.processed} из {progress.total}</span>
               <span className="text-grade-easy">Создано карточек: {progress.created}</span>
               <span className="text-muted-foreground">Пропущено: {progress.skipped}</span>
               <span className={progress.failed ? "text-destructive" : "text-muted-foreground"}>Ошибок: {progress.failed}</span>
@@ -505,11 +514,11 @@ function ImportPage() {
         <div className="min-w-0 flex-1">
           <div className="font-medium">Очистка неудачного импорта</div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Удалить сырые карточки, сохранённые без ИИ-разметки за последние 48 часов.
+            Удалить карточки с заполненным tg_message_id и пустым full_text или channel_ids.
           </p>
         </div>
         <Button variant="outline" className="h-11 rounded-xl text-destructive" onClick={() => void countRawImportCards()}>
-          <Trash2 /> Удалить карточки без ИИ
+          <Trash2 /> Удалить карточки, импортированные без ИИ
         </Button>
       </section>
 

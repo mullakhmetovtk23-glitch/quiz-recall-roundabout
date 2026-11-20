@@ -72,7 +72,7 @@ function LibraryPage() {
       let query = supabase.from("cards").select(CARD_COLUMNS, { count: "exact" });
       const ts = buildTsQuery(q);
       if (ts) query = query.textSearch("search_vector", ts, { config: "russian" });
-      if (channel === NONE) query = query.eq("channel_ids", "{}");
+      if (channel === NONE) query = (query as any).eq("channel_ids", "{}");
       else if (channel !== ALL) query = query.contains("channel_ids", [channel]);
       const { data, error, count } = await query.order("created_at", { ascending: false }).range(0, limit - 1);
       if (error) throw error;
@@ -114,7 +114,7 @@ function LibraryPage() {
         <div className="flex shrink-0 gap-2">
           <Link to="/import">
             <Button variant="outline" size="lg" className="h-11 rounded-xl px-3">
-              <Download /> <span className="hidden sm:inline">Импорт JSON</span>
+              <Download /> <span className="hidden sm:inline">Импорт из Telegram (JSON)</span>
             </Button>
           </Link>
           <Button
@@ -185,8 +185,8 @@ function LibraryPage() {
                 </div>
                 {card.hook && <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{card.hook}</p>}
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {card.channel_ids.length ? (
-                    card.channel_ids.map((id) => <ChannelPill key={id} channel={channelMap.get(id)} />)
+                  {(card.channel_ids ?? []).length ? (
+                    (card.channel_ids ?? []).map((id) => <ChannelPill key={id} channel={channelMap.get(id)} />)
                   ) : (
                     <ChannelPill channel={null} />
                   )}
