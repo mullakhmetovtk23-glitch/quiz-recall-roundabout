@@ -358,7 +358,12 @@ function AiSettings() {
           {key.trim() ? (
             (() => {
               const resolved = resolveLlmProvider(key);
-              const name = resolved.provider === "github" ? "GitHub Models" : resolved.provider === "openrouter" ? "OpenRouter" : resolved.provider === "gemini" ? "Google Gemini" : "Mistral AI";
+              const name = resolved.provider === "github" ? "GitHub Models"
+                : resolved.provider === "openrouter" ? "OpenRouter"
+                : resolved.provider === "vertex" ? "Google Gemini (Vertex AI)"
+                : resolved.provider === "gemini" ? "Google AI Studio"
+                : resolved.provider === "groq" ? "Groq"
+                : "Mistral AI";
               return <p className="mt-2 text-xs font-medium text-primary">Распознано: {name}</p>;
             })()
           ) : <p className="mt-2 text-xs text-muted-foreground">Ключ не задан — используется встроенный ИИ Lovable</p>}

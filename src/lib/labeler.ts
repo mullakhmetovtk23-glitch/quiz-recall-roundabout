@@ -4,10 +4,13 @@ import { IMPROVE_SYSTEM_PROMPT, buildImproveUserPrompt, normalizeCategoryNames }
 import type { AppSettings } from "./settings";
 import type { AtomicCardLabel, BatchLabelResult } from "./ai.functions";
 
-export type LlmProvider = "github" | "openrouter" | "gemini" | "groq" | "mistral";
+export type LlmProvider = "github" | "openrouter" | "gemini" | "vertex" | "groq" | "mistral";
 
 export function resolveLlmProvider(apiKey: string): { provider: LlmProvider; url: string; model: string } {
   const key = apiKey.trim();
+  if (key.startsWith("AQ.")) {
+    return { provider: "vertex", url: "https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent", model: "gemini-2.5-flash" };
+  }
   if (key.startsWith("AIza")) {
     return { provider: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", model: "gemini-2.5-flash" };
   }
@@ -31,7 +34,40 @@ export class LlmHttpError extends Error {
 
 async function readError(res: Response): Promise<LlmHttpError> {
   const body = await res.text().catch(() => "");
-  return new LlmHttpError(res.status, body);
+  let message = body;
+  try {
+    const json = JSON.parse(body) as { error?: { message?: string } | string; message?: string };
+    if (typeof json.error === "string") message = json.error;
+    else if (json.error?.message) message = json.error.message;
+    else if (json.message) message = json.message;
+  } catch {}
+  return new LlmHttpError(res.status, message);
+}
+
+async function callGoogleGemini(key: string, prompt: string, responseJson: boolean) {
+  const vertexUrl = `https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`;
+  const studioUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`;
+  const urls = key.startsWith("AQ.") ? [vertexUrl, studioUrl] : [studioUrl];
+  let lastRes: Response | null = null;
+
+  for (const url of urls) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        ...(responseJson ? { generationConfig: { responseMimeType: "application/json" } } : {}),
+      }),
+    });
+    lastRes = res;
+    if (res.ok) {
+      const json = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+      return json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    }
+    if (key.startsWith("AQ.") && url === vertexUrl && (res.status === 400 || res.status === 404)) continue;
+    throw await readError(res);
+  }
+  throw await readError(lastRes!);
 }
 
 export async function checkApiKey(apiKey: string): Promise<{ ok: true; provider: string } | { ok: false; error: string }> {
@@ -41,17 +77,13 @@ export async function checkApiKey(apiKey: string): Promise<{ ok: true; provider:
     const provider = resolveLlmProvider(key);
     const providerName = provider.provider === "github" ? "GitHub Models"
       : provider.provider === "openrouter" ? "OpenRouter"
+      : provider.provider === "vertex" ? "Google Gemini (Vertex AI)"
       : provider.provider === "gemini" ? "Google AI Studio"
       : provider.provider === "groq" ? "Groq"
       : "Mistral AI";
 
-    if (provider.provider === "gemini") {
-      const res = await fetch(`${provider.url}?key=${encodeURIComponent(key)}`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Reply with OK" }] }], generationConfig: { maxOutputTokens: 16 } }),
-      });
-      const text = await res.text();
-      if (!res.ok) throw new LlmHttpError(res.status, text);
+    if (provider.provider === "gemini" || provider.provider === "vertex") {
+      const text = await callGoogleGemini(key, "Reply with OK", false);
       if (!text.trim()) throw new Error("Ответ провайдера не содержит текста");
       return { ok: true, provider: providerName };
     }
@@ -84,18 +116,15 @@ export async function callCustomLlm(apiKey: string, messages: { role: string; co
   if (!key) throw new Error("Пользовательский ключ не задан");
   const provider = resolveLlmProvider(key);
 
-  if (provider.provider === "gemini") {
-    const res = await fetch(`${provider.url}?key=${encodeURIComponent(key)}`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: messages.find((m) => m.role === "system")?.content ?? "" }] },
-        contents: messages.filter((m) => m.role !== "system").map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-        generationConfig: jsonMode ? { responseMimeType: "application/json" } : {},
-      }),
-    });
-    if (!res.ok) throw await readError(res);
-    const json = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-    return { content: json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "", status: res.status };
+  if (provider.provider === "gemini" || provider.provider === "vertex") {
+    const systemPrompt = messages.find((m) => m.role === "system")?.content ?? "";
+    const userPrompt = messages
+      .filter((m) => m.role !== "system")
+      .map((m) => m.content)
+      .join("\n\n");
+    const prompt = systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
+    const content = await callGoogleGemini(key, prompt, jsonMode);
+    return { content, status: 200 };
   }
 
   const urls = provider.provider === "github"
