@@ -218,13 +218,31 @@ function ImportPage() {
 
       let result = await processBatch(slice, parsed.chatId, existing, byName);
       if (pauseRef.current) {
-        setNotice("ИИ вернул ошибку или лимит: пауза 15 секунд");
-        await sleep(15000);
-        if (!cancelRef.current) {
-          pauseRef.current = false;
-          setStatus("running");
-          setNotice(null);
-          result = await processBatch(slice, parsed.chatId, existing, byName);
+        if (/HTTP 429|429|rate.?limit/i.test(notice ?? "")) {
+          setNotice(`${notice ?? "HTTP 429: лимит провайдера ИИ"}. Повтор через 20 секунд.`);
+          await sleep(20000);
+          if (!cancelRef.current) {
+            pauseRef.current = false;
+            setStatus("running");
+            setNotice(null);
+            let retries = 0;
+            do {
+              result = await processBatch(slice, parsed.chatId, existing, byName);
+              retries++;
+              if (pauseRef.current && /HTTP 429|429|rate.?limit/i.test(notice ?? "") && retries < 5) {
+                setNotice(`${notice}. Повтор через 20 секунд.`);
+                await sleep(20000);
+              } else {
+                break;
+              }
+            } while (!cancelRef.current);
+          }
+        }
+      }
+
+      if (!pauseRef.current && !cancelRef.current && batch < batchCount - 1) {
+        if (settings.llmApiKey.startsWith("ghp_") || settings.llmApiKey.startsWith("github_pat_")) {
+          await sleep(4500);
         }
       }
 

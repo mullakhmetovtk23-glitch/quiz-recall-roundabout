@@ -35,7 +35,10 @@ async function callWebhookLlm(
         generationConfig: { responseMimeType: "application/json" },
       }),
     });
-    if (!res.ok) throw new Error(`Gemini API: ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status}: ${body || "пустой ответ сервера"}`);
+    }
     const json = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
     return json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
   }
@@ -49,7 +52,10 @@ async function callWebhookLlm(
       messages,
     }),
   });
-  if (!res.ok) throw new Error(`ИИ API: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}: ${body || "пустой ответ сервера"}`);
+  }
   const json = await res.json() as { choices?: { message?: { content?: string } }[] };
   return json.choices?.[0]?.message?.content ?? "";
 }
@@ -118,7 +124,8 @@ export async function handleTelegramWebhook(request: Request): Promise<Response>
       })).filter((x: any) => x.term);
     } catch (e) {
       console.error("Telegram webhook AI failed", e);
-      return Response.json({ ok: false, error: "Ошибка ИИ-разметки Telegram-поста" }, { status: 502 });
+      const message = e instanceof Error ? e.message : "неизвестная ошибка ИИ";
+      return Response.json({ ok: false, error: `Ошибка ИИ-разметки Telegram-поста: ${message}` }, { status: 502 });
     }
   }
   if (!cards.length) {

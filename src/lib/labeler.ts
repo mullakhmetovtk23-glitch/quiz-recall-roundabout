@@ -20,6 +20,12 @@ export function resolveLlmProvider(apiKey: string): { provider: LlmProvider; url
   return { provider: "mistral", url: "https://api.mistral.ai/v1/chat/completions", model: "mistral-small-latest" };
 }
 
+export class LlmHttpError extends Error {
+  constructor(public status: number, public responseBody: string) {
+    super(`HTTP ${status}: ${responseBody || "пустой ответ сервера"}`);
+  }
+}
+
 export async function callCustomLlm(apiKey: string, messages: { role: string; content: string }[], jsonMode = true) {
   const provider = resolveLlmProvider(apiKey);
   if (provider.provider === "gemini") {
@@ -33,7 +39,10 @@ export async function callCustomLlm(apiKey: string, messages: { role: string; co
         generationConfig: jsonMode ? { responseMimeType: "application/json" } : {},
       }),
     });
-    if (!res.ok) throw new Error(`Gemini API: ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new LlmHttpError(res.status, body);
+    }
     const json = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
     const content = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
     return { content, status: res.status };
@@ -50,7 +59,10 @@ export async function callCustomLlm(apiKey: string, messages: { role: string; co
       messages,
     }),
   });
-  if (!res.ok) throw new Error(`ИИ API: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new LlmHttpError(res.status, body);
+  }
   const json = await res.json() as { choices?: { message?: { content?: string } }[] };
   return { content: json.choices?.[0]?.message?.content ?? "", status: res.status };
 }
@@ -81,8 +93,15 @@ export async function labelPostBatchWithOwnKey(
       if (normalized.length) items[id] = normalized;
     }
     return { ok: true, items };
-  } catch {
-    return { ok: false, stop: true, error: "Не удалось связаться с API ИИ. Импорт поставлен на паузу." };
+  } catch (e) {
+    const error = e instanceof LlmHttpError
+      ? e.message
+      : e instanceof SyntaxError
+        ? `Невалидный JSON в ответе ИИ: ${e.message}`
+        : e instanceof Error
+          ? `Сетевая ошибка ИИ: ${e.message}`
+          : "Неизвестная ошибка API ИИ";
+    return { ok: false, stop: true, error: `${error}. Импорт поставлен на паузу.` };
   }
 }
 
@@ -99,7 +118,11 @@ export async function labelWithOwnKey(
     ]);
     return { ok: true, label: normalizeLabel(JSON.parse(result.content), categories) };
   } catch (e) {
-    return { ok: false, stop: false, error: "Не удалось связаться с API" };
+    return {
+      ok: false,
+      stop: false,
+      error: e instanceof Error ? e.message : "Не удалось связаться с API",
+    };
   }
 }
 
@@ -123,7 +146,7 @@ export async function improveCardWithOwnKey(
       full_text: typeof raw["full_text"] === "string" ? raw["full_text"].trim() : fullText,
       category_names: normalizeCategoryNames(raw["category_names"], categories),
     }};
-  } catch {
-    return { ok: false, error: "Не удалось связаться с API ИИ" };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Не удалось связаться с API ИИ" };
   }
 }
