@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1795193097402,
+      "tag": "0000_create_channels_cards",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795193113870,
+      "tag": "0001_card_images_policies",
+      "breakpoints": true
+    }
+  ]
+}

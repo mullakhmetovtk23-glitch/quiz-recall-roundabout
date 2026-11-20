@@ -28,3 +28,11 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Project rules
+
+- Data access goes straight from the browser through the generated Supabase client with open RLS (no auth) — the app is a single-user personal tool by owner's choice.
+- AI post labeling runs in `src/lib/ai.functions.ts` (server function on the Lovable AI Gateway); an optional user-supplied OpenAI-compatible key in localStorage is called from the browser via `src/lib/labeler.ts`. Both share prompts from `src/lib/label-prompt.ts`.
+- Leitner scheduling lives only in `src/lib/leitner.ts` (covered by tests); forward and reverse progress are separate column sets (`fwd_*`, `rev_*`) on `cards`.
+- The `card-images` bucket is private (workspace blocks public buckets); `image_url` stores a long-lived signed URL produced by `src/lib/storage.ts`.
+- Telegram export parsing is pure and tested in `src/lib/telegram.ts`; keep it free of browser/DB calls.
