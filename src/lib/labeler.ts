@@ -41,11 +41,19 @@ async function readError(res: Response): Promise<LlmHttpError> {
   return new LlmHttpError(res.status, message);
 }
 
-const GEMINI_MODEL_FALLBACK = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-flash-latest"] as const;
+const GEMINI_MODEL_FALLBACK = [
+  "gemini-3.8-flash-lite",
+  "gemini-3.5-flash-lite",
+  "gemini-3.8-flash",
+  "gemini-flash-latest",
+] as const;
+const TEMPORARY_HTTP_ERRORS = new Set([429, 500, 502, 503, 504]);
 
 async function callGoogleGemini(key: string, prompt: string, responseJson: boolean) {
   let lastError: LlmHttpError | null = null;
-  for (const model of GEMINI_MODEL_FALLBACK) {
+
+  for (let retry = 0; retry <= 5; retry++) {
+    const model = GEMINI_MODEL_FALLBACK[Math.min(retry, GEMINI_MODEL_FALLBACK.length - 1)];
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key.trim())}`;
     const res = await fetch(url, {
       method: "POST",
@@ -55,14 +63,25 @@ async function callGoogleGemini(key: string, prompt: string, responseJson: boole
         ...(responseJson ? { generationConfig: { responseMimeType: "application/json" } } : {}),
       }),
     });
+
     if (res.ok) {
       const json = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
       return json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
     }
+
     lastError = await readError(res);
-    if (res.status !== 404) throw lastError;
+    if (res.status === 404 && retry < 5) {
+      await new Promise((resolve) => setTimeout(resolve, retry === 0 ? 5_000 : retry * 5_000));
+      continue;
+    }
+    if (TEMPORARY_HTTP_ERRORS.has(res.status) && retry < 5) {
+      await new Promise((resolve) => setTimeout(resolve, (retry + 1) * 5_000));
+      continue;
+    }
+    throw lastError;
   }
-  throw lastError ?? new Error("Google Gemini не ответил доступным моделью");
+
+  throw lastError ?? new Error("Google Gemini не ответил доступной моделью");
 }
 
 export async function checkApiKey(apiKey: string): Promise<{ ok: true; provider: string } | { ok: false; error: string }> {

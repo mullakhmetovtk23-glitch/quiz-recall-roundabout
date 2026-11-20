@@ -217,26 +217,17 @@ function ImportPage() {
       const slice = posts.slice(batch * BATCH_SIZE, (batch + 1) * BATCH_SIZE);
 
       let result = await processBatch(slice, parsed.chatId, existing, byName);
-      if (pauseRef.current) {
-        if (/HTTP 429|429|rate.?limit/i.test(notice ?? "")) {
-          setNotice(`${notice ?? "HTTP 429: лимит провайдера ИИ"}. Повтор через 20 секунд.`);
-          await sleep(20000);
-          if (!cancelRef.current) {
-            pauseRef.current = false;
-            setStatus("running");
-            setNotice(null);
-            let retries = 0;
-            do {
-              result = await processBatch(slice, parsed.chatId, existing, byName);
-              retries++;
-              if (pauseRef.current && /HTTP 429|429|rate.?limit/i.test(notice ?? "") && retries < 5) {
-                setNotice(`${notice}. Повтор через 20 секунд.`);
-                await sleep(20000);
-              } else {
-                break;
-              }
-            } while (!cancelRef.current);
-          }
+      while (pauseRef.current && !cancelRef.current) {
+        if (/HTTP\s*(429|500|502|503|504)|\b(429|500|502|503|504)\b|503 Service|temporarily unavailable|перегруз/i.test(notice ?? "")) {
+          setNotice(`${notice ?? "Временная перегрузка сервера ИИ"}. Повтор текущего батча через 15 секунд.`);
+          await sleep(15000);
+          if (cancelRef.current) break;
+          pauseRef.current = false;
+          setStatus("running");
+          setNotice(`Повтор батча ${batch + 1} из ${batchCount}`);
+          result = await processBatch(slice, parsed.chatId, existing, byName);
+        } else {
+          break;
         }
       }
 

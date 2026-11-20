@@ -29,14 +29,22 @@ Deno.serve(async (req) => {
 
   if (gemini && text) {
     const prompt=`Разметь пост для карточки ЧГК. Верни JSON: term, hook, full_text, category_names (1-3 из ${JSON.stringify(categories)}). ${channel.ai_prompt ?? ""}\nПост:\n${text.slice(0,6000)}`;
-    const models=["gemini-3.8-flash","gemini-3.5-flash","gemini-flash-latest"];
+    const models=["gemini-3.8-flash-lite","gemini-3.5-flash-lite","gemini-3.8-flash","gemini-flash-latest"];
+    const temporary=new Set([429,500,502,503,504]);
     let r: Response | null=null, raw="";
-    for (const model of models) {
+    let lastBody="";
+    for (let retry=0; retry<=5; retry++) {
+      const model=models[Math.min(retry,models.length-1)];
       r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${gemini}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json"}})});
       if (r.ok) { const j=await r.json(); raw=j.candidates?.[0]?.content?.parts?.map((p:any)=>p.text).join("") ?? "{}"; break; }
-      if (r.status!==404) break;
+      lastBody=await r.text();
+      if (r.status===404 || temporary.has(r.status)) {
+        if (retry<5) { await new Promise((resolve)=>setTimeout(resolve,(retry+1)*5000)); continue; }
+      }
+      break;
     }
     if (r?.ok) { try { const x=JSON.parse(raw); term=x.term||term; hook=x.hook||hook; full_text=x.full_text||full_text; names=Array.isArray(x.category_names)?x.category_names:[]; } catch {} }
+    else if (r) console.error(`Telegram Gemini error HTTP ${r.status}: ${lastBody || "пустой ответ сервера"}`);
   }
   const ids=categories.map((n,i)=>n).length ? (await supabase.from("channels").select("id,name")).data?.filter((c:any)=>names.map((n:string)=>n.toLowerCase()).includes(c.name.toLowerCase())).map((c:any)=>c.id) ?? [channel.id] : [channel.id];
 

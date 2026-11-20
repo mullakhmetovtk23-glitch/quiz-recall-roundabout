@@ -23,9 +23,11 @@ async function callWebhookLlm(
   messages: { role: string; content: string }[],
 ): Promise<string> {
   if (provider.provider === "gemini") {
-    const models = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-flash-latest"] as const;
+    const models = ["gemini-3.8-flash-lite", "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"] as const;
+    const temporary = new Set([429, 500, 502, 503, 504]);
     let lastError = "";
-    for (const model of models) {
+    for (let retry = 0; retry <= 5; retry++) {
+      const model = models[Math.min(retry, models.length - 1)];
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
       const res = await fetch(url, {
         method: "POST",
@@ -41,7 +43,11 @@ async function callWebhookLlm(
         return json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
       }
       lastError = `HTTP ${res.status}: ${body || "пустой ответ сервера"}`;
-      if (res.status !== 404) throw new Error(lastError);
+      if ((res.status === 404 || temporary.has(res.status)) && retry < 5) {
+        await new Promise((resolve) => setTimeout(resolve, (retry + 1) * 5000));
+        continue;
+      }
+      throw new Error(lastError);
     }
     throw new Error(lastError || "Google Gemini не ответил доступной моделью");
   }
