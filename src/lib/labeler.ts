@@ -41,6 +41,52 @@ async function readError(res: Response): Promise<LlmHttpError> {
   return new LlmHttpError(res.status, message);
 }
 
+const RETRY_DELAYS_MS = [3000, 6000, 12000, 20000] as const;
+const TEMPORARY_HTTP_STATUS = new Set([429, 502, 503, 504]);
+
+export async function safeFetch(
+  url: string | URL,
+  options: RequestInit = {},
+  retries = 4,
+): Promise<Response> {
+  let lastNetworkError: unknown = null;
+  let allNetworkFailuresWereFast = true;
+  let networkFailureCount = 0;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25_000);
+    const attemptStartedAt = Date.now();
+
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (TEMPORARY_HTTP_STATUS.has(response.status) && attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      clearTimeout(timeout);
+      lastNetworkError = error;
+      networkFailureCount++;
+      if (Date.now() - attemptStartedAt >= 500) allNetworkFailuresWereFast = false;
+
+      if (attempt >= retries) break;
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+    }
+  }
+
+  if (networkFailureCount >= retries + 1 && allNetworkFailuresWereFast) {
+    throw new Error("Сетевая блокировка или CORS: браузер не может достучаться до сервера напрямую");
+  }
+
+  if (lastNetworkError instanceof Error) throw lastNetworkError;
+  throw new Error("Сетевая ошибка при выполнении запроса");
+}
+
 const GEMINI_MODEL_FALLBACK = [
   "gemini-3.8-flash-lite",
   "gemini-3.5-flash-lite",
@@ -55,7 +101,7 @@ async function callGoogleGemini(key: string, prompt: string, responseJson: boole
   for (let retry = 0; retry <= 5; retry++) {
     const model = GEMINI_MODEL_FALLBACK[Math.min(retry, GEMINI_MODEL_FALLBACK.length - 1)];
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key.trim())}`;
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -106,7 +152,7 @@ export async function checkApiKey(apiKey: string): Promise<{ ok: true; provider:
       : [provider.url];
 
     for (const url of urls) {
-      const res = await fetch(url, {
+      const res = await safeFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify({ model: provider.model, messages: [{ role: "user", content: "Reply with OK" }], max_tokens: 16 }),
@@ -145,7 +191,7 @@ export async function callCustomLlm(apiKey: string, messages: { role: string; co
     : [provider.url];
 
   for (const url of urls) {
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({ model: provider.model, ...(jsonMode ? { response_format: { type: "json_object" } } : {}), messages }),
