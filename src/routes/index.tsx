@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeftRight, ArrowRight, CalendarCheck, Check, Infinity as InfinityIcon, Loader2, Pencil, Shuffle, Sparkles, Undo2, X } from "lucide-react";
+import { ArrowLeft, ArrowLeftRight, ArrowRight, CalendarCheck, Check, Infinity as InfinityIcon, Loader2, Pencil, Shuffle, Sparkles, Undo2, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { useServerFn } from "@tanstack/react-start";
@@ -19,6 +19,8 @@ import { CARD_COLUMNS, channelsQuery, fetchAllPages, statsQuery, type Card, type
 import { GRADES, nextReview, type Grade } from "@/lib/leitner";
 import { buildSession, type DirectionMode, type SessionItem } from "@/lib/session";
 import { cn } from "@/lib/utils";
+import { RelatedCardsSection } from "@/components/RelatedCardsSection";
+import { findRelatedCards } from "@/lib/related-cards";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -244,8 +246,14 @@ function Player({ initial, channels, onExit }: { initial: SessionItem[]; channel
   const improveFn = useServerFn(improveCard);
   const { settings } = useSettings();
   const requeueSeq = useRef(0);
+  const [allCards, setAllCards] = useState<Card[]>([]);
+  const [cardHistory, setCardHistory] = useState<Card[]>([]);
   const channelMap = useMemo(() => new Map(channels.map((c) => [c.id, c])), [channels]);
   const item = queue[index];
+
+  useEffect(() => {
+    void supabase.from("cards").select(CARD_COLUMNS).then(({ data }) => setAllCards((data ?? []) as Card[]));
+  }, []);
 
   async function improveWithAi() {
     if (!item) return;

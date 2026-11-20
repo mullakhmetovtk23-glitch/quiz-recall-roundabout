@@ -6,7 +6,7 @@ export type Channel = Tables<"channels">;
 export type Card = Omit<Tables<"cards">, "search_vector" | "channel_id" | "tg_rendered_text">;
 
 export const CARD_COLUMNS =
-  "id,channel_ids,term,hook,full_text,image_url,source_chat_id,tg_message_id,fwd_box,fwd_due_at,fwd_reviewed_at,rev_box,rev_due_at,rev_reviewed_at,created_at,updated_at" as const;
+  "id,channel_ids,related_card_ids,term,hook,full_text,image_url,source_chat_id,tg_message_id,fwd_box,fwd_due_at,fwd_reviewed_at,rev_box,rev_due_at,rev_reviewed_at,created_at,updated_at" as const;
 
 export const channelsQuery = queryOptions({
   queryKey: ["channels"],

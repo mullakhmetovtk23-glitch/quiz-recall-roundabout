@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Sparkles } from "lucide-react";
+import { Link2, Search, Sparkles } from "lucide-react";
 import { useSettings } from "@/lib/settings";
 import { improveCardWithOwnKey } from "@/lib/labeler";
 import { improveCard } from "@/lib/ai.functions";
@@ -39,6 +39,9 @@ export function CardFormDialog({ open, onOpenChange, channels, card, defaultChan
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [removeImage, setRemoveImage] = useState(false);
+  const [relatedIds, setRelatedIds] = useState<string[]>([]);
+  const [relatedSearch, setRelatedSearch] = useState("");
+  const [allCards, setAllCards] = useState<Card[]>([]);
   const [saving, setSaving] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const improveFn = useServerFn(improveCard);
@@ -55,6 +58,11 @@ export function CardFormDialog({ open, onOpenChange, channels, card, defaultChan
     setFile(null);
     setPreview(card?.image_url ?? null);
     setRemoveImage(false);
+    setRelatedIds(card?.related_card_ids ?? []);
+    setRelatedSearch("");
+    if (open) {
+      void supabase.from("cards").select(CARD_COLUMNS).order("term").then(({ data }) => setAllCards((data ?? []) as Card[]));
+    }
   }, [open, card, defaultChannelId]);
 
   useEffect(() => {
@@ -101,6 +109,7 @@ export function CardFormDialog({ open, onOpenChange, channels, card, defaultChan
         full_text: fullText.trim(),
         channel_ids: channelIds,
         image_url,
+        related_card_ids: relatedIds,
       };
       const query = card
         ? supabase.from("cards").update(values).eq("id", card.id).select(CARD_COLUMNS).single()

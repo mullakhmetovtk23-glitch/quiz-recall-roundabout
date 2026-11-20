@@ -22,6 +22,8 @@ import { BoxLegend, ProgressDots } from "@/components/ProgressDots";
 import { supabase } from "@/integrations/supabase/client";
 import { CARD_COLUMNS, buildTsQuery, channelsQuery, type Card } from "@/lib/db";
 import { removeCardImage } from "@/lib/storage";
+import { RelatedCardsSection } from "@/components/RelatedCardsSection";
+import { findRelatedCards } from "@/lib/related-cards";
 
 export const Route = createFileRoute("/library")({
   head: () => ({
@@ -60,6 +62,7 @@ function LibraryPage() {
   const [editing, setEditing] = useState<Card | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [toDelete, setToDelete] = useState<Card | null>(null);
+  const [cardHistory, setCardHistory] = useState<Card[]>([]);
   const q = useDebounced(search.trim(), 300);
   const channelMap = useMemo(() => new Map(channels.map((c) => [c.id, c])), [channels]);
 
@@ -175,6 +178,7 @@ function LibraryPage() {
                 type="button"
                 className="min-w-0 flex-1 text-left"
                 onClick={() => {
+                  setCardHistory([]);
                   setEditing(card);
                   setFormOpen(true);
                 }}
@@ -201,6 +205,7 @@ function LibraryPage() {
                   size="icon"
                   aria-label="Редактировать"
                   onClick={() => {
+                    setCardHistory([]);
                     setEditing(card);
                     setFormOpen(true);
                   }}

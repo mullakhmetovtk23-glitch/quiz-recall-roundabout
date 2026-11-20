@@ -29,6 +29,7 @@ export type Database = {
           rev_box: number
           rev_due_at: string
           rev_reviewed_at: string | null
+          related_card_ids: string[]
           search_vector: unknown
           source_chat_id: string | null
           term: string
@@ -39,6 +40,7 @@ export type Database = {
         Insert: {
           channel_id?: string | null
           channel_ids?: string[]
+          related_card_ids?: string[]
           created_at?: string
           full_text?: string
           fwd_box?: number
@@ -60,6 +62,7 @@ export type Database = {
         Update: {
           channel_id?: string | null
           channel_ids?: string[]
+          related_card_ids?: string[]
           created_at?: string
           full_text?: string
           fwd_box?: number
